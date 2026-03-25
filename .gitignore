@@ -39,3 +39,44 @@
 
 # debug information files
 *.dwo
+
+
+#Cmake
+MakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+CMakeUserPresets.json
+# Visual Studio Code
+/.vscode/
+/.cache/
+
+# Visual Studio work directory
+/.vs/
+# Visual Studio build directory
+/out/
+
+# General Build Directories
+[Bb]uild/
+[Bb]in/
+[Oo]ut/
+[Rr]elease/
+[Dd]ebug/
+
+# Dependency Directories
+node_modules/
+vendor/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log

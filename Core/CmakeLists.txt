@@ -1,0 +1,8 @@
+# Grab all source files in the Core/Source directory
+file(GLOB CORE_SOURCES "Source/*.cpp" "Source/*.h" "Source/*.comp")
+
+# Create a static library named "Core"
+add_library(Core STATIC ${CORE_SOURCES})
+
+# Add include directories (PUBLIC means anything that links to Core gets these too)
+target_link_libraries(Core PUBLIC glm glfw Glad)

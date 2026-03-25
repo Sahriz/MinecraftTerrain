@@ -1,0 +1,41 @@
+# Grab all source files safely
+file(GLOB PROGRAM_SOURCES 
+    	"Source/*.cpp" 
+    	"Include/*.h" 
+    	"Shaders/shader.frag" 
+    	"Shaders/shader.vert"
+	"Include/Chunks/*.h"
+	"Include/Player/*.h"
+	"Include/Renderer/*.h"
+	"Source/Chunks/*.cpp"
+	"Source/Player/*.cpp"
+	"Source/Renderer/*.cpp"
+)
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${PROGRAM_SOURCES})
+
+# Create the executable application
+add_executable(Program ${PROGRAM_SOURCES})
+
+# Include directories specific to the program
+target_include_directories(Program PRIVATE
+    Source
+    Include
+    ../Vendor/imgui
+    ../Vendor/imgui/backends
+    ../Vendor/glfw/backends
+    ../Vendor/glm            # Added for standard GLM includes
+    ../Vendor/glm/gtc        # Added specifically to find type_ptr.hpp directly
+    ../Core/Source           # Explicitly tell it where Core headers are
+)
+
+# Link the Core library, Vendor libraries, and system libraries
+target_link_libraries(Program PRIVATE 
+    	Core 
+    	opengl32
+    	glm
+    	glfw
+    	Glad
+    	ImGui
+	stb
+)

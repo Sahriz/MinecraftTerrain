@@ -1,0 +1,99 @@
+#pragma once
+
+#include <unordered_map>
+#include <unordered_set>
+#include <GLFW/glfw3.h>      // must come before glad
+#include <glad/glad.h>
+
+#include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_opengl3.h"
+
+#include "glm.hpp"
+#include "matrix_transform.hpp"
+#include "type_ptr.hpp"
+
+#include "vector"
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <iomanip>
+
+#include "Chunks/ChunkManager.h"
+#include "Player/Player.h"
+#include "Renderer/ChunkRenderer.h"
+#include "Core.h"
+
+
+
+using ChunkCoord = glm::vec2;
+
+
+
+class Renderer {
+public:
+    Renderer();
+    
+    void Render(ChunkManager& chunkManager);
+
+    void Cleanup(ChunkManager& chunkManager);
+
+    GLFWwindow* GetWindow() {
+        return _window;
+    }
+
+    const glm::vec3& GetCameraPosition() {
+        return _player.GetCameraPosition();
+    }
+
+    void PlayerInit(Player player) { _player = player; }
+    
+private:
+    int _width = 16;
+    int _height = 256;
+    int _depth = 16;
+    int _viewDistance = 16;
+    ChunkRenderer _chunkRenderer = ChunkRenderer(_width, _height, _depth, _viewDistance);
+
+    glm::mat4 _identity;
+    glm::mat4 _view;
+    glm::mat4 _model;
+    glm::mat3 _normalMatrix;
+    float _prevTime = 0.0f;
+
+    float _scale = 0.1f;
+    float _amplitude = 1.0f;
+    float _frequency = 0.1f;
+    int _octave = 5;
+    float _lacunarity = 2.0f;
+    float _persistance = 0.5f;
+    
+
+    int _screenWidth = 1920;
+    int _screenHeight = 1080;
+    glm::mat4 _perspectiveMat;
+    
+    Player _player;
+    GLuint _shaderProgram;
+    GLFWwindow* _window;
+
+    GLint _widthLocation;
+    GLint _heightLocation;
+    GLint _timeLocation;
+    GLint _projMLocation;
+    GLint _modelMLocation;
+    GLint _viewLoc;
+    GLint _normalMatrixLocation;
+    GLint _textureUniformLoc;
+    GLuint textureID;
+
+    void Init();
+    std::string ReadFile(const std::string& filePath);
+    GLuint CompileShader(GLenum type, const std::string& source);
+    GLuint CreateShaderProgram(const std::string& vertexPath, const std::string& fragmentPath);
+    void DrawChunks(ChunkManager& chunkManager);
+    void ResetToStartValues();
+    
+
+};
