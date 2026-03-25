@@ -67,11 +67,11 @@ namespace Core
 		
 
 		void Init() {
-			_3DNoiseMapPipelineComputeShader = CreateComputeShaderProgram("Core/Source/3DVoxelCubeNoise.comp");
-			_voxelCubesGeometryInitComputeShader = CreateComputeShaderProgram("Core/Source/VoxelCubesGeometryInit.comp");
-			_voxelCubesTriangleCounterComputeShader = CreateComputeShaderProgram("Core/Source/VoxelCubesCountTriangles.comp");
-			_voxelTerrainPainterComputeShader = CreateComputeShaderProgram("Core/Source/VoxelTerrainPainter.comp");
-			_voxelCubesSurfaceCullingComputeShader = CreateComputeShaderProgram("Core/Source/VoxelCubesSurfaceCulling.comp");
+			_3DNoiseMapPipelineComputeShader = CreateComputeShaderProgram("Core/Source/3DNoise.comp");
+			_voxelCubesGeometryInitComputeShader = CreateComputeShaderProgram("Core/Source/GeometryInit.comp");
+			_voxelCubesTriangleCounterComputeShader = CreateComputeShaderProgram("Core/Source/CountTriangles.comp");
+			_voxelTerrainPainterComputeShader = CreateComputeShaderProgram("Core/Source/TerrainPainter.comp");
+			_voxelCubesSurfaceCullingComputeShader = CreateComputeShaderProgram("Core/Source/SurfaceCulling.comp");
 		}
 
 		void Cleanup() {
@@ -320,7 +320,7 @@ namespace Core
 				// We use a 1D dispatch. 
 				// Since local_size_x = 64, we divide the total count by 64.
 				GLuint numGroups = (activeCount + 63) / 64;
-				std::cout << activeCount << std::endl;
+				//std::cout << activeCount << std::endl;
 				glDispatchCompute(numGroups, 1, 1);
 			}
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);

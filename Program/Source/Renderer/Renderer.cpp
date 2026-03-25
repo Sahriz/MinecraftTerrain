@@ -212,17 +212,16 @@ GLuint Renderer::CreateShaderProgram(const std::string& vertexPath, const std::s
 void Renderer::DrawChunks(ChunkManager& chunkManager) {
 	std::unordered_map<ChunkCoord, Core::VoxelCubeMesh*>& chunkMap = chunkManager.GetChunkMap();
 	_chunkRenderer.UpdateActiveChunk(GetCameraPosition(), chunkManager);
+
 	for (const glm::ivec2& coord : _chunkRenderer.GetActiveChunkSet()) {
 		Core::VoxelCubeMesh& voxelData = *chunkMap[coord];
-		glUseProgram(_shaderProgram);
-		glActiveTexture(GL_TEXTURE0);                     // activate texture unit 0
-		glBindTexture(GL_TEXTURE_2D, textureID);          // bind our texture
-		glUniform1i(_textureUniformLoc, 0);                // tell shader "uTexture" uses GL_TEXTURE0
-		glBindVertexArray(voxelData.vao);
 
+		// Only bind the specific chunk's data and draw
+		glBindVertexArray(voxelData.vao);
 		glDrawElements(GL_TRIANGLES, voxelData.indexCount, GL_UNSIGNED_INT, 0);
-		glBindVertexArray(0);
 	}
+
+	glBindVertexArray(0); // Clean up at the very end
 }
 
 void Renderer::ResetToStartValues() {
@@ -241,53 +240,30 @@ void Renderer::Render(ChunkManager& chunkManager) {
 	float timeValue = glfwGetTime();
 	float deltaTime = timeValue - _prevTime;
 	_prevTime = timeValue;
-	float fps = 1 / deltaTime;
+
 	_player.HandleKeyboardInput(deltaTime, _window);
 	_view = _player.GetViewMatrix();
-	
-	glUniformMatrix4fv(_viewLoc, 1, GL_FALSE, glm::value_ptr(_view));
-	//std::cout << "\rDelta Time: " << deltaTime << "s" << " | FPS: " << fps << std::flush;
-	//std::cout << "FPS: " << fps << std::endl << std::flush;
-	glUniform1f(_timeLocation, timeValue);
-	glm::vec3 camPos = _player.GetCameraPosition();
-	/*
-	ImGui_ImplOpenGL3_NewFrame();
-	ImGui_ImplGlfw_NewFrame();
-	ImGui::NewFrame();
-	ImGui::SetNextWindowSize(ImVec2(380, 380), 0);
-	ImGui::Begin("Settings Panel  |  Press E to access");
-	ImGui::Text("Mesh Settings");
-	ImGui::Text("Camera Position: X: %.2f, Y: %.2f, Z: %.2f",
-		camPos.x, camPos.y, camPos.z);
-	ImGui::SliderInt("Width", &_width, 8, 32);
-	ImGui::SliderInt("Height", &_height, 64, 256);
-	ImGui::SliderInt("Depth", &_depth, 8, 32);
-	ImGui::SliderFloat("FrequencyScale", &_frequency, 0.01f, 5.0f);
-	ImGui::SliderInt("ViewDistance", &_viewDistance, 8, 32);
 
-	if (ImGui::Button("Regenerate Mesh")) {
-		chunkManager.DestroyChunks();
-		chunkManager.UpdateSettings(_scale, _amplitude, _frequency, _octave, _lacunarity, _persistance, _width, _height,_depth, _viewDistance);
-		_chunkRenderer.UpdateVariables(_width, _height, _depth, _viewDistance);
-	}
-	if (ImGui::Button("Reset Settings")) {
-		ResetToStartValues();
-	}
-
-	ImGui::Text("WASD to move  |  Space to ascend and ctrl to descend");
-	ImGui::End();
-
-	ImGui::Render();
-	*/
+	// 1. Clear the screen
 	int display_w, display_h;
 	glfwGetFramebufferSize(_window, &display_w, &display_h);
 	glViewport(0, 0, display_w, display_h);
-	glClearColor(130.f/255.f, 200.f/255.f, 229.f/255.f, 1.0f);
+	glClearColor(130.f / 255.f, 200.f / 255.f, 229.f / 255.f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	DrawChunks(chunkManager);
+	// 2. BIND THE SHADER FIRST
+	glUseProgram(_shaderProgram);
 
-	//ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+	// 3. NOW UPDATE UNIFORMS (View matrix, time, textures)
+	glUniformMatrix4fv(_viewLoc, 1, GL_FALSE, glm::value_ptr(_view));
+	glUniform1f(_timeLocation, timeValue);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, textureID);
+	glUniform1i(_textureUniformLoc, 0);
+
+	// 4. Draw the chunks
+	DrawChunks(chunkManager);
 
 	glfwSwapBuffers(_window);
 }
