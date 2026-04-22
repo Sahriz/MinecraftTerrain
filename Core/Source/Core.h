@@ -47,10 +47,12 @@ namespace Core {
 		GLuint indirectBuffer = 0; // For indirect draw calls
 		GLuint densitySSBO = 0; // For storing the density values of the voxel grid
 		GLuint splineSSBO = 0; // For storing spline data for the pipeline noise map
+		GLuint ssboVertexCounter = 0;
 		
 
 		GLuint stagingVBO = 0;
 		GLuint stagingIBO = 0;
+		GLuint stagingIndirect = 0;
 		GLsync syncObj = nullptr;
 		int indexCount = 0;
 		int maxQuards = 0;
@@ -67,6 +69,7 @@ namespace Core {
 			if (stagingVBO) glDeleteBuffers(1, &stagingVBO);
 			if (stagingIBO) glDeleteBuffers(1, &stagingIBO);
 			if (syncObj) glDeleteSync(syncObj);
+
 
 			vao = vbo = ibo = blockID_SSBO = indirectBuffer = densitySSBO = splineSSBO = stagingVBO = stagingIBO = 0;
 			syncObj = nullptr;
@@ -90,8 +93,36 @@ namespace Core {
 	extern GLuint _voxelTerrainPainterComputeShader;
 	extern GLuint _voxelCubesSurfaceCullingComputeShader;
 
+	extern GLint _noiseWidthLoc;
+	extern GLint _noiseHeightLoc;
+	extern GLint _noiseDepthLoc;
+	extern GLint _noiseOffsetLoc;
+	extern GLint _noiseFrequencyLoc;
+	extern GLint _noiseDropoffLoc;
+	extern GLint _noiseSplinePointsLoc;
+
+	extern GLint _paintWidthLoc;
+	extern GLint _paintHeightLoc;
+	extern GLint _paintDepthLoc;
+
+	extern GLint _countWidthLoc;
+	extern GLint _countHeightLoc;
+	extern GLint _countDepthLoc;
+
+	extern GLint _geomWidthLoc;
+	extern GLint _geomHeightLoc;
+	extern GLint _geomDepthLoc;
+	extern GLint _geomOffsetLoc;
+	extern GLint _geomColumnSizeLoc;
+	extern GLint _geomRowSizeLoc;
+
 	void Init();
+	void InitShaders();
+	void InitUniformLocations();
 	void Cleanup();
+
+	void InitializeVoxelCubeMesh(VoxelCubeMesh& mesh, int width, int height, int depth);
+	void InitializeVoxelCubeMeshSize(VoxelCubeMesh& mesh, int size);
 	void CreateFlat3DNoiseMapPipeLine(VoxelCubeMesh& mesh, const Spline& spline, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff);
 	void TerrainPaint(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth);
 

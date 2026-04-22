@@ -64,14 +64,68 @@ namespace Core
 		GLuint _voxelCubesTriangleCounterComputeShader = 0;
 		GLuint _voxelTerrainPainterComputeShader = 0;
 		GLuint _voxelCubesSurfaceCullingComputeShader = 0;
+
+		GLint _noiseWidthLoc = 0;
+		GLint _noiseHeightLoc = 0;
+		GLint _noiseDepthLoc = 0;
+		GLint _noiseOffsetLoc = 0;
+		GLint _noiseFrequencyLoc = 0;
+		GLint _noiseDropoffLoc = 0;
+		GLint _noiseSplinePointsLoc = 0;
+
+		GLint _paintWidthLoc = 0;
+		GLint _paintHeightLoc = 0;
+		GLint _paintDepthLoc = 0;
+
+		GLint _countWidthLoc = 0;
+		GLint _countHeightLoc = 0;
+		GLint _countDepthLoc = 0;
+
+		GLint _geomWidthLoc = 0;
+		GLint _geomHeightLoc = 0;
+		GLint _geomDepthLoc = 0;
+		GLint _geomOffsetLoc = 0;
+		GLint _geomColumnSizeLoc = 0;
+		GLint _geomRowSizeLoc = 0;
 		
 
 		void Init() {
+			InitShaders();
+			InitUniformLocations();
+		}
+
+		void InitShaders() {
 			_3DNoiseMapPipelineComputeShader = CreateComputeShaderProgram("Core/Source/3DNoise.comp");
 			_voxelCubesGeometryInitComputeShader = CreateComputeShaderProgram("Core/Source/GeometryInit.comp");
 			_voxelCubesTriangleCounterComputeShader = CreateComputeShaderProgram("Core/Source/CountTriangles.comp");
 			_voxelTerrainPainterComputeShader = CreateComputeShaderProgram("Core/Source/TerrainPainter.comp");
 			_voxelCubesSurfaceCullingComputeShader = CreateComputeShaderProgram("Core/Source/SurfaceCulling.comp");
+		}
+
+		void InitUniformLocations() {
+
+			_noiseWidthLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "width");
+			_noiseHeightLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "height");
+			_noiseDepthLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "depth");
+			_noiseOffsetLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "offset");
+			_noiseFrequencyLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "frequency");
+			_noiseDropoffLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "useHeightDropoff");
+			_noiseSplinePointsLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "splinePointsCount");
+
+			_paintWidthLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "width");
+			_paintHeightLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "height");
+			_paintDepthLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "depth");
+
+			_countWidthLoc = glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "gridWidth");
+			_countHeightLoc = glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "gridHeigth");
+			_countDepthLoc = glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "gridDepth");
+
+			_geomWidthLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "gridWidth");
+			_geomHeightLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "gridHeigth");
+			_geomDepthLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "gridDepth");
+			_geomOffsetLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "offset");
+			_geomColumnSizeLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "columns");
+			_geomRowSizeLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "rows");
 		}
 
 		void Cleanup() {
@@ -80,6 +134,59 @@ namespace Core
 			glDeleteProgram(_voxelCubesTriangleCounterComputeShader);
 			glDeleteProgram(_voxelTerrainPainterComputeShader);
 			glDeleteProgram(_voxelCubesSurfaceCullingComputeShader);
+		}
+
+		void InitializeVoxelCubeMesh(VoxelCubeMesh& mesh, int width, int height, int depth) {
+			int totalVoxels = width * height * depth;
+
+			glGenBuffers(1, &mesh.indirectBuffer);
+			uint32_t drawCmd[] = { 0, 1, 0, 0, 0 };
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, mesh.indirectBuffer);
+			glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(drawCmd), drawCmd, GL_DYNAMIC_DRAW);
+
+			glGenVertexArrays(1, &mesh.vao);
+			glBindVertexArray(mesh.vao);
+
+			glGenBuffers(1, &mesh.stagingIndirect);
+			glBindBuffer(GL_COPY_READ_BUFFER, mesh.stagingIndirect);
+			glBufferData(GL_COPY_READ_BUFFER, 16, nullptr, GL_STREAM_READ);
+		}
+
+		void InitializeVoxelCubeMeshSize(VoxelCubeMesh& mesh, int size) {
+			if (size > -1) {
+				mesh.maxQuards = size;
+
+				glGenBuffers(1, &mesh.vbo);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.vbo);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * size * sizeof(VoxelCubeCombinedVertex), NULL, GL_DYNAMIC_COPY);
+
+				glGenBuffers(1, &mesh.ibo);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.ibo);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, 6 * size * sizeof(int), NULL, GL_DYNAMIC_COPY);
+
+				// 3. Setup Vertex Counter (FIX: pass memory address of 0, not literal 0)
+				int initialVertex = 0;
+				glGenBuffers(1, &mesh.ssboVertexCounter);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.ssboVertexCounter);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(int), &initialVertex, GL_DYNAMIC_COPY);
+
+				glBindVertexArray(mesh.vao);
+
+				glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+				int stride = 48; // Assuming 48 bytes per vertex
+				glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, stride, (void*)0);
+				glEnableVertexAttribArray(0);
+				glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, (void*)16);
+				glEnableVertexAttribArray(1);
+				glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)32);
+				glEnableVertexAttribArray(2);
+
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ibo);
+
+				glBindVertexArray(0);
+
+				mesh.gpuLoaded = true;
+			}
 		}
 
 
@@ -96,23 +203,15 @@ namespace Core
 			glBufferData(GL_SHADER_STORAGE_BUFFER, spline.points.size() * sizeof(glm::vec2), spline.points.data(), GL_DYNAMIC_COPY);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh.splineSSBO);
 
-			GLint widthLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "width");
-			GLint heightLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "height");
-			GLint depthLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "depth");
-			GLint offsetLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "offset");
-			GLint frequencyLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "frequency");
-			GLint dropoffLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "useHeightDropoff");
-			GLint splinePointsLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "splinePointsCount");
-
 			glUseProgram(_3DNoiseMapPipelineComputeShader);
 
-			glUniform1i(widthLoc, width);
-			glUniform1i(heightLoc, height);
-			glUniform1i(depthLoc, depth);
-			glUniform3fv(offsetLoc, 1, &offset[0]);
-			glUniform1f(frequencyLoc, frequency);
-			glUniform1i(dropoffLoc, useDropoff);
-			glUniform1i(splinePointsLoc, (int)spline.points.size());
+			glUniform1i(_noiseWidthLoc, width);
+			glUniform1i(_noiseHeightLoc, height);
+			glUniform1i(_noiseDepthLoc, depth);
+			glUniform3fv(_noiseOffsetLoc, 1, &offset[0]);
+			glUniform1f(_noiseFrequencyLoc, frequency);
+			glUniform1i(_noiseDropoffLoc, useDropoff);
+			glUniform1i(_noiseSplinePointsLoc, (int)spline.points.size());
 
 			glDispatchCompute(
 				(GLuint)ceil(width / 8.0f),
@@ -129,16 +228,11 @@ namespace Core
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ab.counterSSBO);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.dataSSBO);
 
-
-			GLint widthLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "width");
-			GLint heightLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "height");
-			GLint depthLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "depth");
-
 			glUseProgram(_voxelTerrainPainterComputeShader);
 
-			glUniform1i(widthLoc, width);
-			glUniform1i(heightLoc, height);
-			glUniform1i(depthLoc, depth);
+			glUniform1i(_paintWidthLoc, width);
+			glUniform1i(_paintHeightLoc, height);
+			glUniform1i(_paintDepthLoc, depth);
 
 			glDispatchCompute(
 				(GLuint)ceil(width / 8.0f),
@@ -208,8 +302,6 @@ namespace Core
 		}
 
 		int VoxelCubesQuadCount(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, bool CleanUp) {
-		
-
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
 
 			GLuint ssboCounter;
@@ -222,15 +314,11 @@ namespace Core
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.counterSSBO);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ab.dataSSBO);
 
-			GLint widthLoc = glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "gridWidth");
-			GLint heightLoc = glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "gridHeigth");
-			GLint depthLoc = glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "gridDepth");
-
 			glUseProgram(_voxelCubesTriangleCounterComputeShader);
 		
-			glUniform1i(widthLoc, width);
-			glUniform1i(heightLoc, heigth);
-			glUniform1i(depthLoc, depth);
+			glUniform1i(_countWidthLoc, width);
+			glUniform1i(_countHeightLoc, heigth);
+			glUniform1i(_countDepthLoc, depth);
 
 			uint32_t activeCount = 0;
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.counterSSBO);
@@ -260,101 +348,32 @@ namespace Core
 		void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp) {
 			int gridSize = width * heigth * depth;
 
-			GLuint ssboIndexCounter;
-			GLuint ssboVertexCounter;
-
-			if (mesh.vao) { glDeleteVertexArrays(1, &mesh.vao); mesh.vao = 0; }
-			if (mesh.vbo) { glDeleteBuffers(1, &mesh.vbo); mesh.vbo = 0; }
-			if (mesh.ibo) { glDeleteBuffers(1, &mesh.ibo); mesh.ibo = 0; }
-
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
-
-			glGenBuffers(1, &mesh.vbo);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.vbo);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * quadCount * sizeof(VoxelCubeCombinedVertex),NULL, GL_DYNAMIC_COPY);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh.vbo);
-
-			glGenBuffers(1, &mesh.ibo);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.ibo);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, 6 * quadCount * sizeof(int), NULL, GL_DYNAMIC_COPY);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mesh.ibo);
-
-			int initialIndex = 0;
-			glGenBuffers(1, &ssboIndexCounter);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboIndexCounter);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(int), &initialIndex, GL_DYNAMIC_COPY);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ssboIndexCounter);
-
-			int initialVertex = 0;
-			glGenBuffers(1, &ssboVertexCounter);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVertexCounter);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(int), &initialVertex, GL_DYNAMIC_COPY);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, ssboVertexCounter);
-
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ab.counterSSBO);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, ab.dataSSBO);
-
-
-			GLint widthLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "gridWidth");
-			GLint heigthLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "gridHeigth");
-			GLint depthLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "gridDepth");
-			GLint offsetLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "offset");
-			GLint columnSizeLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "columns");
-			GLint rowSizeLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "rows");
-
-			glUseProgram(_voxelCubesGeometryInitComputeShader);
-
-			glUniform1i(widthLoc, width);
-			glUniform1i(heigthLoc, heigth);
-			glUniform1i(depthLoc, depth);
-			glUniform3fv(offsetLoc, 1, &offset[0]);
-			glUniform1f(columnSizeLoc, 3);
-			glUniform1f(rowSizeLoc, 16);
-
 			uint32_t activeCount = 0;
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.counterSSBO);
 			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &activeCount);
 
-			// 2. Only dispatch if there is actually something to draw
-			if (activeCount > 0) {
-				// We use a 1D dispatch. 
-				// Since local_size_x = 64, we divide the total count by 64.
-				GLuint numGroups = (activeCount + 63) / 64;
-				//std::cout << activeCount << std::endl;
-				glDispatchCompute(numGroups, 1, 1);
-			}
-			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh.vbo);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mesh.ibo);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, mesh.indirectBuffer);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, mesh.ssboVertexCounter);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ab.counterSSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, ab.dataSSBO);
 
-			glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+			glUseProgram(_voxelCubesGeometryInitComputeShader);
 
-			glGenVertexArrays(1, &mesh.vao);
-			glBindVertexArray(mesh.vao);
+			glUniform1i(_geomWidthLoc, width);
+			glUniform1i(_geomHeightLoc, heigth);
+			glUniform1i(_geomDepthLoc, depth);
+			glUniform3fv(_geomOffsetLoc, 1, &offset[0]);
+			glUniform1f(_geomColumnSizeLoc, 3);
+			glUniform1f(_geomRowSizeLoc, 16);
 
-			glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
-			// Position (Location 0)
+			GLuint numGroups = (activeCount + 63) / 64;
+			//std::cout << activeCount << std::endl;
+			glDispatchCompute(numGroups, 1, 1);
 
-			int stride = 48;
-			glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, stride, (void*)0);
-			glEnableVertexAttribArray(0);
-			// Normal (Location 1)
-			glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, (void*)16);
-			glEnableVertexAttribArray(1);
-			// UV (Location 2)
-			glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)32);
-			glEnableVertexAttribArray(2);
-
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ibo); // Attach indices to VAO
-
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboIndexCounter);
-			int finalIndexCount = 0;
-			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(int), &finalIndexCount);
-			mesh.indexCount = finalIndexCount;
-
-			glBindVertexArray(0);
-
-			glDeleteBuffers(1, &ssboIndexCounter);
-			glDeleteBuffers(1, &ssboVertexCounter);
-
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 		}
 
 		VoxelCubeMesh* CreateVoxelCubes3DMesh(int width, int height, int depth, glm::vec2 offset, bool CleanUp, const float amplitude, const float frequency, const float persistance, const float lacunarity, const int octaves, const bool useDropoff) {
@@ -392,6 +411,8 @@ namespace Core
 			spline.points.push_back(SplinePoint(0.98f, 1.4f));
 			spline.points.push_back(SplinePoint(1.0f, 1.45f));
 
+			InitializeVoxelCubeMesh(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
+
 			CreateFlat3DNoiseMapPipeLine(*cubeMeshData, spline, paddedWidth, paddedHeight, paddedDepth, offset3D, true, frequency, true);
 
 			AppendBuffer ab;
@@ -403,12 +424,16 @@ namespace Core
 
 			int quadCount = VoxelCubesQuadCount(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, CleanUp);
 
+			InitializeVoxelCubeMeshSize(*cubeMeshData, quadCount);
+
 			VoxelCubesGeometryInit(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, quadCount, CleanUp);
 			glDeleteBuffers(1, &cubeMeshData->stagingVBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingIBO);
 			glDeleteBuffers(1, &ab.counterSSBO);
 			glDeleteBuffers(1, &ab.dataSSBO);
 			glDeleteBuffers(1, &cubeMeshData->splineSSBO);
+			glDeleteBuffers(1, &cubeMeshData->ssboVertexCounter);
+			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);
 
 			return cubeMeshData;
 		}

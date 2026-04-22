@@ -21,8 +21,12 @@ layout(std430, binding = 2) buffer IndexBuffer{
     int indices[];
 };
 
-layout(std430, binding = 3) buffer IndexCounterBuffer{
-	int indexCounter;
+layout(std430, binding = 3) buffer IndirectBuffer {
+    uint count;         // Number of vertices to draw
+    uint instanceCount; // Usually 1
+    uint first;         // Always 0
+    uint baseVertex;    // Always 0
+    uint baseInstance;  // Always 0
 };
 
 layout(std430, binding = 4) buffer VertexCounterBuffer{
@@ -34,6 +38,8 @@ layout(std430, binding = 5) buffer TotalActiveCount {
 };
 
 layout(std430, binding = 6) buffer ActiveVoxelList { uint activeVoxels[]; };
+
+
 
 
 vec3[] cornerOffset = { vec3(0.0f,0.0f, 0.0f), vec3(1.0f, 0.0f, 0.0f),
@@ -91,7 +97,7 @@ void main(){
         
             // 1. Reserve 4 vertices and 6 indices
             int vStart = atomicAdd(vertexCounter, 4);
-            int iStart = atomicAdd(indexCounter, 6);
+            uint iStart = atomicAdd(count, 6);
 
             // 2. Define geometry (Winding order maintained)
             vec3 v[4];
