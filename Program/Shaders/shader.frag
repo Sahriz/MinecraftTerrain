@@ -14,8 +14,20 @@ out vec4 FragColor;
 void main()
 {
 
+    vec3 lightDirection = normalize(vec3(10*cos(Time*0.1),10.0,10*sin(Time*0.1)));
     vec3 norm = normalize(Normal);
-    vec3 normalColor = abs(norm);
 
-    FragColor = texture(uTexture, TexCoord);
+    float ambientStrength = 0.3; // Adjust this to make shadows lighter/darker
+    vec3 ambientLight = vec3(ambientStrength);
+
+    float diff = max(dot(norm, lightDirection), 0.0);
+    vec3 diffuseLight = vec3(diff); // Assuming white sunlight
+    
+
+    vec3 totalLight = ambientLight + diffuseLight;
+
+    vec4 texColor = texture(uTexture, TexCoord);
+    FragColor = vec4(totalLight * texColor.rgb, texColor.a);
+
+    
 }
