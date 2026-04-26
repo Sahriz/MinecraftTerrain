@@ -13,6 +13,46 @@
 #include <iomanip>
 
 namespace Core {
+
+	class AppendBuffer {
+	public:
+		AppendBuffer(int width, int height, int depth) {
+			maxCapacity = width * height * depth;
+
+			// 1. Setup Counter (just 4 bytes)
+			glGenBuffers(1, &counterSSBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, counterSSBO);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
+
+			// 2. Setup Data List
+			glGenBuffers(1, &dataSSBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, dataSSBO);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, maxCapacity * sizeof(uint32_t), nullptr, GL_STATIC_DRAW);
+		}
+
+		~AppendBuffer() {
+			if (counterSSBO) glDeleteBuffers(1, &counterSSBO);
+			if (dataSSBO) glDeleteBuffers(1, &dataSSBO);
+		}
+
+		AppendBuffer(const AppendBuffer&) = delete; // No copying
+		AppendBuffer& operator=(const AppendBuffer&) = delete; // No assignment
+
+		AppendBuffer(AppendBuffer&& other) noexcept : counterSSBO(other.counterSSBO), dataSSBO(other.dataSSBO), maxCapacity(other.maxCapacity) {
+			other.counterSSBO = 0;
+			other.dataSSBO = 0;
+			other.maxCapacity = 0;
+		}
+
+		GLuint getCounterSSBO() const { return counterSSBO; }
+		GLuint getDataSSBO() const { return dataSSBO; }
+
+	private:
+		GLuint counterSSBO;
+		GLuint dataSSBO;
+		int maxCapacity;
+	};
+
 	struct SplinePoint
 	{
 		SplinePoint(float x, float y) : position(x, y) {}
@@ -24,13 +64,6 @@ namespace Core {
 		std::vector<SplinePoint> points; //list of points in the spline
 		bool closed = false; //if the spline is closed or not
 	};
-	
-
-	struct AppendBuffer {
-		GLuint counterSSBO;
-		GLuint dataSSBO;
-		int maxCapacity;
-	};
 
 	
 	struct VoxelCubeCombinedVertex {
@@ -39,26 +72,75 @@ namespace Core {
 		glm::vec2 uv;       // 8 bytes
 		float padding[2];   // 8 bytes (Essential to bring the total to 48)
 	};
-	struct VoxelCubeMesh {
-		GLuint vao = 0;
-		GLuint vbo = 0;      // Combined Vertex/Normal/UV data
-		GLuint ibo = 0;      // Indices
-		GLuint blockID_SSBO = 0; // The 3D grid of Block IDs
-		GLuint indirectBuffer = 0; // For indirect draw calls
-		GLuint densitySSBO = 0; // For storing the density values of the voxel grid
-		GLuint splineSSBO = 0; // For storing spline data for the pipeline noise map
-		GLuint ssboVertexCounter = 0;
-		
+	class VoxelCubeMesh {
+	public:
+		VoxelCubeMesh() = default;
 
-		GLuint stagingVBO = 0;
-		GLuint stagingIBO = 0;
-		GLuint stagingIndirect = 0;
+		// GPU IDs
+		GLuint vao = 0, vbo = 0, ibo = 0;
+		GLuint blockID_SSBO = 0, indirectBuffer = 0, densitySSBO = 0;
+		GLuint splineSSBO = 0, ssboVertexCounter = 0;
+		GLuint stagingVBO = 0, stagingIBO = 0, stagingIndirect = 0;
 		GLsync syncObj = nullptr;
+
+		// Logic data
 		int indexCount = 0;
 		int maxQuards = 0;
 		bool gpuLoaded = false;
 
+		VoxelCubeMesh(const VoxelCubeMesh&) = delete;
+		VoxelCubeMesh& operator=(const VoxelCubeMesh&) = delete;
+
+		VoxelCubeMesh(VoxelCubeMesh&& other) noexcept {
+			*this = std::move(other);
+		}
+
+		VoxelCubeMesh& operator=(VoxelCubeMesh&& other) noexcept {
+			if (this != &other) {
+				// Important: Clean up OUR existing resources before taking new ones
+				Release();
+
+				// Steal the values
+				vao = other.vao;
+				vbo = other.vbo;
+				ibo = other.ibo;
+				blockID_SSBO = other.blockID_SSBO;
+				indirectBuffer = other.indirectBuffer;
+				densitySSBO = other.densitySSBO;
+				splineSSBO = other.splineSSBO;
+				ssboVertexCounter = other.ssboVertexCounter;
+				stagingVBO = other.stagingVBO;
+				stagingIBO = other.stagingIBO;
+				stagingIndirect = other.stagingIndirect;
+				syncObj = other.syncObj;
+				indexCount = other.indexCount;
+				maxQuards = other.maxQuards;
+				gpuLoaded = other.gpuLoaded;
+
+				// CRITICAL: Set 'other' to 0 so its destructor doesn't delete the buffers we just stole
+				other.vao = 0;
+				other.vbo = 0;
+				other.ibo = 0;
+				other.blockID_SSBO = 0;
+				other.indirectBuffer = 0;
+				other.densitySSBO = 0;
+				other.splineSSBO = 0;
+				other.ssboVertexCounter = 0;
+				other.stagingVBO = 0;
+				other.stagingIBO = 0;
+				other.stagingIndirect = 0;
+				other.syncObj = nullptr;
+				other.gpuLoaded = false;
+			}
+			return *this;
+		}
+
+		// 4. DESTRUCTOR
 		~VoxelCubeMesh() {
+			Release();
+		}
+	private:
+		void Release() {
 			if (vao) glDeleteVertexArrays(1, &vao);
 			if (vbo) glDeleteBuffers(1, &vbo);
 			if (ibo) glDeleteBuffers(1, &ibo);
@@ -70,21 +152,11 @@ namespace Core {
 			if (stagingIBO) glDeleteBuffers(1, &stagingIBO);
 			if (syncObj) glDeleteSync(syncObj);
 
-
+			// Reset everything to default
 			vao = vbo = ibo = blockID_SSBO = indirectBuffer = densitySSBO = splineSSBO = stagingVBO = stagingIBO = 0;
 			syncObj = nullptr;
 			gpuLoaded = false;
-			
 		}
-	};
-
-	struct BlockIds {
-		std::vector<int> IDs;
-	};
-	struct VoxelData {
-		VoxelData(VoxelCubeMesh& meshdata, BlockIds& blockids) { meshData = meshdata; blockIDs = blockids; }
-		VoxelCubeMesh meshData;
-		BlockIds blockIDs;
 	};
 	
 	extern GLuint _3DNoiseMapPipelineComputeShader;
@@ -126,10 +198,10 @@ namespace Core {
 	void CreateFlat3DNoiseMapPipeLine(VoxelCubeMesh& mesh, const Spline& spline, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff);
 	void TerrainPaint(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth);
 
-	void SetupAppendBufferVoxelMesh(AppendBuffer& ab, int width, int height, int depth);
-
 	void PerformVoxelCubesSurfaceCulling(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth, float isoLevel);
 	int VoxelCubesQuadCount(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, bool CleanUp);
 	void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp);
-	VoxelCubeMesh* CreateVoxelCubes3DMesh(int width, int heigth, int depth, glm::vec2 offset, bool CleanUp, const float amplitude = 1.0f, const float frequency = 1.0f, const float persistance = 0.5f, const float lacunarity = 2.0f, const int octaves = 5, const bool useDropoff = true);
+	std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int heigth, int depth, glm::vec2 offset, bool CleanUp, const float amplitude = 1.0f, const float frequency = 1.0f, const float persistance = 0.5f, const float lacunarity = 2.0f, const int octaves = 5, const bool useDropoff = true);
+
+	
 }

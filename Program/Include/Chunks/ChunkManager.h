@@ -22,6 +22,12 @@ public:
 
 	ChunkManager() {}
 
+	ChunkManager(const ChunkManager&) = delete;
+	ChunkManager& operator=(const ChunkManager&) = delete;
+
+	ChunkManager(ChunkManager&&) = default;
+	ChunkManager& operator=(ChunkManager&&) = default;
+
 	void DestroyChunks();
 
 	void Update(const glm::vec3& position);
@@ -52,12 +58,12 @@ public:
 
 	}
 
-	std::unordered_map<ChunkCoord, Core::VoxelCubeMesh*>& GetChunkMap() {
+	std::unordered_map<ChunkCoord, std::unique_ptr<Core::VoxelCubeMesh>>& GetChunkMap() {
 		return _chunkMap;
 	}
 
 private:
-	std::unordered_map<ChunkCoord, Core::VoxelCubeMesh*> _chunkMap;
+	std::unordered_map<ChunkCoord, std::unique_ptr<Core::VoxelCubeMesh>> _chunkMap;
 
 	float _scale = 0.1f;
 	float _amplitude = 1.0f;
@@ -70,6 +76,6 @@ private:
 	int _depth = 16;
 	int _viewDistance = 24;
 
-	void DeleteChunk(Core::VoxelCubeMesh* mesh);
+	void DeleteChunk(glm::vec2 coord);
 
 };

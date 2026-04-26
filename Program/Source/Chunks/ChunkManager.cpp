@@ -22,8 +22,8 @@ void ChunkManager::GenerateChunk(const glm::vec3& position) {
 					//the function call is GPU for the gpu implementtion. Please do keep in mind the noise map is still using compute shaders
 					//even on the cpu implementation, so that is technically a speedup that should not be granted as a possitive for the CPU part
 					//of this code. 
-					Core::VoxelCubeMesh* voxelData = std::move(Core::CreateVoxelCubes3DMesh(_width, _height, _depth, offset, false, _amplitude, _frequency, _persistance, _lacunarity, _octave, true));
-					_chunkMap[coord] = voxelData;
+					std::unique_ptr<Core::VoxelCubeMesh> voxelData = Core::CreateVoxelCubes3DMesh(_width, _height, _depth, offset, false, _amplitude, _frequency, _persistance, _lacunarity, _octave, true);
+					_chunkMap[coord] = std::move(voxelData);
 					generated = true;
 					numOfGen++;
 					if (numOfGen > 0) break;
@@ -40,8 +40,7 @@ void ChunkManager::PruneChunks(const glm::vec3& position) {
 	for (auto it = _chunkMap.begin(); it != _chunkMap.end(); ) {
 		float dist = glm::distance(playerChunk, it->first);
 		if (dist > maxDist) {
-			DeleteChunk(it->second); // This calls glDeleteBuffers
-			it = _chunkMap.erase(it); // Remove from map
+			DeleteChunk(it->first); // This calls glDeleteBuffers
 		}
 		else {
 			++it;
@@ -50,25 +49,9 @@ void ChunkManager::PruneChunks(const glm::vec3& position) {
 }
 
 void ChunkManager::DestroyChunks() {
-	for (auto& [coord, mesh] : _chunkMap) {
-		DeleteChunk(mesh);
-	}
 	_chunkMap.clear();
 }
 
-void ChunkManager::DeleteChunk(Core::VoxelCubeMesh* mesh) {
-	if (!mesh) return;
-
-	// Free standard GPU memory
-	if(mesh->blockID_SSBO) glDeleteBuffers(1, &mesh->blockID_SSBO);
-	if (mesh->densitySSBO) glDeleteBuffers(1, &mesh->densitySSBO);
-	if (mesh->splineSSBO) glDeleteBuffers(1, &mesh->splineSSBO);
-	if (mesh->ibo) glDeleteBuffers(1, &mesh->ibo);
-	if (mesh->vbo) glDeleteBuffers(1, &mesh->vbo);
-	if (mesh->vao) glDeleteVertexArrays(1, &mesh->vao);
-	if (mesh->indirectBuffer) glDeleteBuffers(1, &mesh->indirectBuffer);
-	
-
-	// Delete the C++ object from RAM
-	delete mesh;
+void ChunkManager::DeleteChunk(glm::vec2 coord) {
+	_chunkMap.erase(coord);
 }

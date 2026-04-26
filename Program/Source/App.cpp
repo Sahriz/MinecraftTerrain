@@ -1,14 +1,16 @@
 ﻿#include "App.h"
 
+App::App() : _renderer(), _chunkManager(), _physics(_chunkManager), _player(_renderer.GetWindow(), &_physics) {
+
+}
+
 void App::Run() {
+
+
 	Core::Init();
 	auto previous = Clock::now();
 	double lag = 0.0;
-
-	_physics = Physics(_chunkManager);
-	_player = Player(_renderer.GetWindow(), _physics);
-	_renderer.PlayerInit(_player);
-	
+	_renderer.InitializeInput(_player);
 
 	// Spawn tick thread
 	std::thread tickThread([&]() {
@@ -35,10 +37,10 @@ void App::Run() {
 	//Game Loop
 	// Main render loop
 	while (!glfwWindowShouldClose(_renderer.GetWindow())) {
-		glm::vec3 pos = _renderer.GetCameraPosition();
+		glm::vec3 pos = _renderer.GetCameraPosition(_player);
 		_chunkManager.Update(pos);
 
-		_renderer.Render(_chunkManager);
+		_renderer.Render(_chunkManager, _player);
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 

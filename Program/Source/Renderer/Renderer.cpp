@@ -34,7 +34,7 @@ Renderer::Renderer() {
 
 
 
-	glfwSetWindowUserPointer(_window, &_player);
+	
 	glfwSetCursorPosCallback(_window, mouse_callback);
 	glfwWindowHint(GLFW_DEPTH_BITS, 24);
 
@@ -133,7 +133,9 @@ Renderer::Renderer() {
 	//Init();
 }
 
-
+void Renderer::InitializeInput(Player& player) {
+	glfwSetWindowUserPointer(_window, &player);
+}
 
 void Renderer::Init() {
 	
@@ -209,19 +211,25 @@ GLuint Renderer::CreateShaderProgram(const std::string& vertexPath, const std::s
 	return program;
 }
 
-void Renderer::DrawChunks(ChunkManager& chunkManager) {
-	std::unordered_map<ChunkCoord, Core::VoxelCubeMesh*>& chunkMap = chunkManager.GetChunkMap();
-	_chunkRenderer.UpdateActiveChunk(GetCameraPosition(), chunkManager);
+void Renderer::DrawChunks(ChunkManager& chunkManager, Player& player) {
+	std::unordered_map<ChunkCoord, std::unique_ptr<Core::VoxelCubeMesh>>& chunkMap = chunkManager.GetChunkMap();
+	_chunkRenderer.UpdateActiveChunk(GetCameraPosition(player), chunkManager);
 
 	for (const glm::ivec2& coord : _chunkRenderer.GetActiveChunkSet()) {
-		Core::VoxelCubeMesh* voxelData = chunkMap[coord];
+		auto it = chunkMap.find(coord);
+		if (it != chunkMap.end()) {
+			Core::VoxelCubeMesh* voxelData = it->second.get();
+			if (voxelData) {
+				glBindVertexArray(voxelData->vao);
 
-		glBindVertexArray(voxelData->vao);
+				// Mandatory for Indirect: Bind the buffer to the INDIRECT_BUFFER target
+				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, voxelData->indirectBuffer);
 
-		// Mandatory for Indirect: Bind the buffer to the INDIRECT_BUFFER target
-		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, voxelData->indirectBuffer);
+				glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)0);
+			}
+		}
 
-		glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)0);
+		
 	}
 
 	glBindVertexArray(0); // Clean up at the very end
@@ -237,7 +245,7 @@ void Renderer::ResetToStartValues() {
 
 
 
-void Renderer::Render(ChunkManager& chunkManager) {
+void Renderer::Render(ChunkManager& chunkManager, Player& player) {
 	glfwPollEvents();
 	// 1. Clear the screen
 	glClearColor(130.f / 255.f, 200.f / 255.f, 229.f / 255.f, 1.0f);
@@ -247,8 +255,8 @@ void Renderer::Render(ChunkManager& chunkManager) {
 	float deltaTime = timeValue - _prevTime;
 	_prevTime = timeValue;
 
-	_player.HandleKeyboardInput(deltaTime, _window);
-	_view = _player.GetViewMatrix();
+	player.HandleKeyboardInput(deltaTime, _window);
+	_view = player.GetViewMatrix();
 
 	
 	int display_w, display_h;
@@ -268,7 +276,7 @@ void Renderer::Render(ChunkManager& chunkManager) {
 	glUniform1i(_textureUniformLoc, 0);
 
 	// 4. Draw the chunks
-	DrawChunks(chunkManager);
+	DrawChunks(chunkManager, player);
 
 	glfwSwapBuffers(_window);
 }

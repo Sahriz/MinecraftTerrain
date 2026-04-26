@@ -7,14 +7,7 @@
 
 class Player {
 public:
-	Player() {
-
-	}
-	Player(GLFWwindow* window, Physics& physics) {
-		_camera = Camera(window);
-		_inventory = Inventory();
-		_movement = Movement(physics);
-	}
+	Player(GLFWwindow* window, Physics* physics) : _camera(window), _inventory() { _physics = physics; }
 
 	/*Player Game loop using tickSystem*/
 	void UpdatePlayer(double deltaTime);
@@ -36,5 +29,5 @@ public:
 private:
 	Camera _camera;
 	Inventory _inventory;
-	Movement _movement;
+	Physics* _physics;
 };

@@ -225,8 +225,8 @@ namespace Core
 
 
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ab.counterSSBO);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.dataSSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ab.getCounterSSBO());
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.getDataSSBO());
 
 			glUseProgram(_voxelTerrainPainterComputeShader);
 
@@ -242,36 +242,10 @@ namespace Core
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
-		
-		void SetupAppendBufferVoxelMesh(AppendBuffer& ab, int width, int height, int depth) {
-			ab.maxCapacity = width * height * depth;
-
-			// 1. Setup Counter (just 4 bytes)
-			glGenBuffers(1, &ab.counterSSBO);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.counterSSBO);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
-
-			// 2. Setup Data List
-			glGenBuffers(1, &ab.dataSSBO);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.dataSSBO);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, ab.maxCapacity * sizeof(uint32_t), nullptr, GL_STATIC_DRAW);
-		}
-
-		void ClearAndBindAppendBuffer(AppendBuffer& ab) {
-			// Reset counter to 0
-			uint32_t zero = 0;
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.counterSSBO);
-			glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &zero);
-
-			// Bind to the binding points defined in the shader
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ab.counterSSBO);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.dataSSBO);
-		}		
-
 		void PerformVoxelCubesSurfaceCulling(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth, float isoLevel) {
 			// 1. Reset the AppendBuffer counter to 0 so we start fresh for this chunk
 			uint32_t zero = 0;
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.counterSSBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.getCounterSSBO());
 			glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &zero);
 
 			// 2. Memory Barrier: Ensure the Noise Map is finished before we read it
@@ -283,9 +257,9 @@ namespace Core
 			// Binding 0: The Noise Density (Input)
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
 			// Binding 1: The AppendBuffer Counter (Output)
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ab.counterSSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ab.getCounterSSBO());
 			// Binding 2: The AppendBuffer Data List (Output)
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.dataSSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.getDataSSBO());
 
 			// 4. Set Uniforms
 			glUniform1i(glGetUniformLocation(_voxelCubesSurfaceCullingComputeShader, "width"), width);
@@ -311,8 +285,8 @@ namespace Core
 			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(int), &initial, GL_DYNAMIC_COPY);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboCounter);
 
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.counterSSBO);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ab.dataSSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.getCounterSSBO());
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ab.getDataSSBO());
 
 			glUseProgram(_voxelCubesTriangleCounterComputeShader);
 		
@@ -321,7 +295,7 @@ namespace Core
 			glUniform1i(_countDepthLoc, depth);
 
 			uint32_t activeCount = 0;
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.counterSSBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.getCounterSSBO());
 			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &activeCount);
 			// 2. Only dispatch if there is actually something to draw
 			if (activeCount > 0) {
@@ -349,7 +323,7 @@ namespace Core
 			int gridSize = width * heigth * depth;
 
 			uint32_t activeCount = 0;
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.counterSSBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.getCounterSSBO());
 			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &activeCount);
 
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
@@ -357,8 +331,8 @@ namespace Core
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mesh.ibo);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, mesh.indirectBuffer);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, mesh.ssboVertexCounter);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ab.counterSSBO);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, ab.dataSSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ab.getCounterSSBO());
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, ab.getDataSSBO());
 
 			glUseProgram(_voxelCubesGeometryInitComputeShader);
 
@@ -376,8 +350,8 @@ namespace Core
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 		}
 
-		VoxelCubeMesh* CreateVoxelCubes3DMesh(int width, int height, int depth, glm::vec2 offset, bool CleanUp, const float amplitude, const float frequency, const float persistance, const float lacunarity, const int octaves, const bool useDropoff) {
-			VoxelCubeMesh* cubeMeshData = new VoxelCubeMesh();
+		std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int height, int depth, glm::vec2 offset, bool CleanUp, const float amplitude, const float frequency, const float persistance, const float lacunarity, const int octaves, const bool useDropoff) {
+			std::unique_ptr<VoxelCubeMesh> cubeMeshData = std::make_unique<VoxelCubeMesh>();
 			cubeMeshData->gpuLoaded = true;
 			int paddedWidth = width + 2;
 			int paddedHeight = height + 2;
@@ -415,8 +389,7 @@ namespace Core
 
 			CreateFlat3DNoiseMapPipeLine(*cubeMeshData, spline, paddedWidth, paddedHeight, paddedDepth, offset3D, true, frequency, true);
 
-			AppendBuffer ab;
-			SetupAppendBufferVoxelMesh(ab, paddedWidth, paddedHeight, paddedDepth);
+			AppendBuffer ab(paddedWidth, paddedHeight, paddedDepth);
 
 			PerformVoxelCubesSurfaceCulling(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, 0.0f);
 
@@ -429,8 +402,6 @@ namespace Core
 			VoxelCubesGeometryInit(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, quadCount, CleanUp);
 			glDeleteBuffers(1, &cubeMeshData->stagingVBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingIBO);
-			glDeleteBuffers(1, &ab.counterSSBO);
-			glDeleteBuffers(1, &ab.dataSSBO);
 			glDeleteBuffers(1, &cubeMeshData->splineSSBO);
 			glDeleteBuffers(1, &cubeMeshData->ssboVertexCounter);
 			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);

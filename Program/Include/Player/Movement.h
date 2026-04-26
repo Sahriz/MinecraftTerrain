@@ -3,13 +3,10 @@
 
 class Movement {
 public:
-	Movement() {
-
-	}
-	Movement(Physics& physics) { _physics = physics; }
+	Movement(Physics& physics) { _physics = _physics; }
 
 private:
-	Physics _physics;
+	Physics* _physics;
 	float _playerSpeed = 15.0f;
 	bool _grounded = false;
 };

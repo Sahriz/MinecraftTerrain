@@ -35,7 +35,10 @@ class Renderer {
 public:
     Renderer();
     
-    void Render(ChunkManager& chunkManager);
+    void InitializeInput(Player& player);
+
+    void Render(ChunkManager& chunkManager, Player& player);
+
 
     void Cleanup(ChunkManager& chunkManager);
 
@@ -43,11 +46,10 @@ public:
         return _window;
     }
 
-    const glm::vec3& GetCameraPosition() {
-        return _player.GetCameraPosition();
+    const glm::vec3& GetCameraPosition(Player& player) {
+        return player.GetCameraPosition();
     }
 
-    void PlayerInit(Player player) { _player = player; }
     
 private:
     int _width = 16;
@@ -73,8 +75,7 @@ private:
     int _screenWidth = 1920;
     int _screenHeight = 1080;
     glm::mat4 _perspectiveMat;
-    
-    Player _player;
+
     GLuint _shaderProgram;
     GLFWwindow* _window;
 
@@ -92,7 +93,7 @@ private:
     std::string ReadFile(const std::string& filePath);
     GLuint CompileShader(GLenum type, const std::string& source);
     GLuint CreateShaderProgram(const std::string& vertexPath, const std::string& fragmentPath);
-    void DrawChunks(ChunkManager& chunkManager);
+    void DrawChunks(ChunkManager& chunkManager, Player& player);
     void ResetToStartValues();
     
 

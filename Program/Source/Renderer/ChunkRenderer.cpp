@@ -14,17 +14,12 @@ void ChunkRenderer::UpdateActiveChunk(const glm::vec3& position, ChunkManager& c
 				if (chunkMap.find(coord) != chunkMap.end()) {
 					_activeChunkSet.insert(coord);
 					// Generate if not yet stored
-					if (!chunkMap[coord]->gpuLoaded) {
+					if (!chunkMap[coord].get()->gpuLoaded) {
 						SetupChunkRenderData(*chunkMap[coord]);
 					}
 				}
 			}
 		}	
-	for (const glm::vec2& coord : _previousFrameActiveChunkSet) {
-		if (_activeChunkSet.find(coord) == _activeChunkSet.end() && chunkMap[coord]->gpuLoaded) {
-			CleanupChunkRenderData(chunkMap[coord]);
-		}
-	}
 }
 
 void ChunkRenderer::SetupChunkRenderData(Core::VoxelCubeMesh& mesh) {
@@ -50,9 +45,5 @@ void ChunkRenderer::SetupChunkRenderData(Core::VoxelCubeMesh& mesh) {
 
 	glBindVertexArray(0);
 	mesh.gpuLoaded = true;
-}
-
-void ChunkRenderer::CleanupChunkRenderData(Core::VoxelCubeMesh* mesh) {
-	
 }
 
