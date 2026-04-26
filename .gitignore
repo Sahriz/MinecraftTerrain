@@ -72,7 +72,7 @@ CMakeUserPresets.json
 
 # Dependency Directories
 node_modules/
-vendor/
+
 
 # OS-specific files
 .DS_Store

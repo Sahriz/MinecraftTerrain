@@ -68,6 +68,58 @@ float snoise(vec3 p) {
 	return dot(d, vec4(52.0));
 }
 
+vec3 mod289(vec3 x) {
+    return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec2 mod289(vec2 x) {
+    return x - floor(x * (1.0 / 289.0)) * 289.0;
+}
+
+vec3 permute(vec3 x) {
+    return mod289(((x * 34.0) + 1.0) * x);
+}
+
+float snoise2D(vec2 v) {
+    const vec4 C = vec4(0.211324865405187,  // (3.0-sqrt(3.0))/6.0
+                        0.366025403784439,  // 0.5*(sqrt(3.0)-1.0)
+                       -0.577350269189626,  // -1.0 + 2.0 * C.x
+                        0.024390243902439); // 1.0 / 41.0
+                        
+    // First corner
+    vec2 i  = floor(v + dot(v, C.yy));
+    vec2 x0 = v - i + dot(i, C.xx);
+
+    // Other corners
+    vec2 i1;
+    i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    vec4 x12 = x0.xyxy + C.xxzz;
+    x12.xy -= i1;
+
+    // Permutations
+    i = mod289(i); 
+    vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
+           + i.x + vec3(0.0, i1.x, 1.0));
+
+    vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);
+    m = m * m;
+    m = m * m;
+
+    // Gradients
+    vec3 x = 2.0 * fract(p * C.www) - 1.0;
+    vec3 h = abs(x) - 0.5;
+    vec3 ox = floor(x + 0.5);
+    vec3 a0 = x - ox;
+
+    m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
+
+    // Compute final noise value
+    vec3 g;
+    g.x  = a0.x  * x0.x  + h.x  * x0.y;
+    g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+    return 130.0 * dot(m, g);
+}
+
 float snoiseFractal(vec3 m) {
 	return   0.5333333* snoise(m)
 				+0.2666667* snoise(2.0*m)
@@ -82,24 +134,67 @@ void main(){
 	
 	if(xPos >= uint(width) || yPos >= uint(height) || zPos >= uint(depth)) return;
 	
-
+	vec2 worldPos2D = vec2((int(xPos) + offset.x), (int(zPos) + offset.z));
+	
 	vec3 position = vec3((int(xPos) + offset.x)/float(width), (int(yPos) + offset.y)/float(height),(int(zPos) + offset.z)/float(depth));
-	vec3 uniformPosition = position;
-	uniformPosition.y *= float(width); // make y uniform with x and z so that the noise dont stretch in y direction
-	float f = 0.07;
-    float a = 1.0;
-    float t = 0.0;
-    for(int i=0; i<5; i++)
-    {
-        t += a*snoise(f*uniformPosition);
-        f *= 2.0;
-        a *= 0.5;
-    }
-	//t = snoiseFractal(uniformPosition * frequency);
-	float normalizedY = float(yPos) / float(height);
-	float heightDropoff = 1.0 - float((position.y * position.y))*4;
-	t -= heightDropoff;
 
-	uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
-    noiseMap[index] = t < 0.0 ? 1 : -1;
+	
+	float surfaceHeight = 0.0;
+    float f2D = 0.0005; // Zoomed out for large rolling hills
+    float a2D = 1.0;
+    float totalAmplitude = 0.0;
+
+	for(int i = 0; i < 4; i++) {
+        // We use worldPos2D * frequency directly.
+        surfaceHeight += a2D * snoise2D(worldPos2D * f2D);
+        totalAmplitude += a2D;
+        f2D *= 2.0;
+        a2D *= 0.5;
+    }
+
+	// Normalize height map from [-1, 1] to roughly [0, 1]
+    surfaceHeight = (surfaceHeight / totalAmplitude) * 0.5 + 0.5;
+
+    float baseHeight = 0.3 * float(height);
+    float heightVariation = float(height) * 0.4;
+	float finalTerrainHeight = baseHeight + (surfaceHeight * heightVariation);
+    uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
+	if (float(yPos) > finalTerrainHeight) {
+        noiseMap[index] = -1; // Air
+        return;               // Exit the thread immediately! GPU skips 3D math.
+    }
+
+	
+
+	vec3 position3D = vec3((int(xPos) + offset.x), (int(yPos) + offset.y), (int(zPos) + offset.z));
+    
+    float caveNoise = 0.0;
+    float f3D = 0.01; // Slightly higher frequency for blocky caves
+    float a3D = 1.0;
+    
+    for(int i = 0; i < 3; i++) { // Only 3 octaves needed for caves, saving more performance!
+        caveNoise += a3D * snoise(position3D * f3D);
+        f3D *= 2.0;
+        a3D *= 0.5;
+    }
+
+	float normalizedHeight = float(yPos) / finalTerrainHeight;
+
+    // 2. Define our bounds (You should pass these in as Uniforms eventually!)
+    float bottomThreshold = -0.1; // Lower number = more caves deep underground
+    float topThreshold = 0.6;     // Higher number = almost no caves near the surface
+
+    // 3. Smoothly blend between them based on our height
+    //float caveThreshold = mix(bottomThreshold, topThreshold, normalizedHeight);
+
+    // Optional: Add a curve so caves stay common until the very top, then rapidly disappear.
+    float caveThreshold = mix(bottomThreshold, topThreshold, pow(normalizedHeight, 2.0));
+
+    if (caveNoise > caveThreshold) {
+        noiseMap[index] = -1; // Carve out a cave!
+    } else {
+        // Solid ground!
+        // Future feature: if float(yPos) >= finalTerrainHeight - 2.0, output Grass ID, else output Stone ID
+        noiseMap[index] = 1; 
+    }
 }

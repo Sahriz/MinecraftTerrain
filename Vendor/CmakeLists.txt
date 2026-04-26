@@ -1,0 +1,34 @@
+# --- GLFW ---
+# Assuming you copied the standard GLFW folder (which comes with its own CMakeLists.txt)
+# We turn off GLFW's tests and docs so they don't bloat your build
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+add_subdirectory(glfw)
+
+# --- GLM (Header-Only) ---
+# GLM doesn't have .cpp files, so we make an "INTERFACE" library.
+# This just means "whoever links to glm gets this include directory."
+add_library(glm INTERFACE)
+target_include_directories(glm INTERFACE glm)
+
+# --- GLAD ---
+# Assuming GLAD has its source in Glad/src/glad.c and headers in Glad/include
+add_library(Glad STATIC Glad/src/glad.c)
+target_include_directories(Glad PUBLIC Glad/include)
+
+# --- ImGui ---
+# Grab the core ImGui files and the specific OpenGL3/GLFW backends
+file(GLOB IMGUI_SOURCES 
+    "imgui/*.cpp"
+    "imgui/backends/imgui_impl_glfw.cpp"
+    "imgui/backends/imgui_impl_opengl3.cpp"
+)
+add_library(ImGui STATIC ${IMGUI_SOURCES})
+target_include_directories(ImGui PUBLIC imgui imgui/backends)
+# ImGui needs GLFW and Glad to compile its backends
+target_link_libraries(ImGui PRIVATE glfw Glad)
+
+# --- STB (Header-Only) ---
+add_library(stb INTERFACE)
+target_include_directories(stb INTERFACE stb)
