@@ -60,6 +60,7 @@ namespace Core
 	}
 	
 		GLuint _3DNoiseMapPipelineComputeShader = 0;
+		GLuint _distanceToAirComputeShader = 0;
 		GLuint _voxelCubesGeometryInitComputeShader = 0;
 		GLuint _voxelCubesTriangleCounterComputeShader = 0;
 		GLuint _voxelTerrainPainterComputeShader = 0;
@@ -72,6 +73,10 @@ namespace Core
 		GLint _noiseFrequencyLoc = 0;
 		GLint _noiseDropoffLoc = 0;
 		GLint _noiseSplinePointsLoc = 0;
+
+		GLint _distanceToAirWidthLoc = 0;
+		GLint _distanceToAirHeightLoc = 0;
+		GLint _distanceToAirDepthLoc = 0;
 
 		GLint _paintWidthLoc = 0;
 		GLint _paintHeightLoc = 0;
@@ -96,6 +101,7 @@ namespace Core
 
 		void InitShaders() {
 			_3DNoiseMapPipelineComputeShader = CreateComputeShaderProgram("Core/Source/3DNoise.comp");
+			_distanceToAirComputeShader = CreateComputeShaderProgram("Core/Source/distanceToAir.comp");
 			_voxelCubesGeometryInitComputeShader = CreateComputeShaderProgram("Core/Source/GeometryInit.comp");
 			_voxelCubesTriangleCounterComputeShader = CreateComputeShaderProgram("Core/Source/CountTriangles.comp");
 			_voxelTerrainPainterComputeShader = CreateComputeShaderProgram("Core/Source/TerrainPainter.comp");
@@ -111,6 +117,10 @@ namespace Core
 			_noiseFrequencyLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "frequency");
 			_noiseDropoffLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "useHeightDropoff");
 			_noiseSplinePointsLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "splinePointsCount");
+
+			_distanceToAirWidthLoc = glGetUniformLocation(_distanceToAirComputeShader, "width");
+			_distanceToAirHeightLoc = glGetUniformLocation(_distanceToAirComputeShader, "height");
+			_distanceToAirDepthLoc = glGetUniformLocation(_distanceToAirComputeShader, "depth");
 
 			_paintWidthLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "width");
 			_paintHeightLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "height");
@@ -136,7 +146,7 @@ namespace Core
 			glDeleteProgram(_voxelCubesSurfaceCullingComputeShader);
 		}
 
-		void InitializeVoxelCubeMesh(VoxelCubeMesh& mesh, int width, int height, int depth) {
+		void InitializeVoxelCubeMesh(VoxelCubeMesh& mesh,const Spline spline, int width, int height, int depth) {
 			int totalVoxels = width * height * depth;
 
 			glGenBuffers(1, &mesh.indirectBuffer);
@@ -150,6 +160,18 @@ namespace Core
 			glGenBuffers(1, &mesh.stagingIndirect);
 			glBindBuffer(GL_COPY_READ_BUFFER, mesh.stagingIndirect);
 			glBufferData(GL_COPY_READ_BUFFER, 16, nullptr, GL_STREAM_READ);
+
+			glGenBuffers(1, &mesh.blockID_SSBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.blockID_SSBO);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(int), NULL, GL_DYNAMIC_COPY);
+
+			glGenBuffers(1, &mesh.distanceToAirSSBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.distanceToAirSSBO);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(int), NULL, GL_DYNAMIC_COPY);
+
+			glGenBuffers(1, &mesh.splineSSBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.splineSSBO);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, spline.points.size() * sizeof(glm::vec2), spline.points.data(), GL_DYNAMIC_COPY);
 		}
 
 		void InitializeVoxelCubeMeshSize(VoxelCubeMesh& mesh, int size) {
@@ -191,16 +213,8 @@ namespace Core
 
 
 		void CreateFlat3DNoiseMapPipeLine(VoxelCubeMesh& mesh, const Spline& spline, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff) {
-			int sizeOfNoiseMap = width * height * depth;
 
-			glGenBuffers(1, &mesh.blockID_SSBO);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.blockID_SSBO);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeOfNoiseMap * sizeof(int), NULL, GL_DYNAMIC_COPY);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
-
-			glGenBuffers(1, &mesh.splineSSBO);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.splineSSBO);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, spline.points.size() * sizeof(glm::vec2), spline.points.data(), GL_DYNAMIC_COPY);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh.splineSSBO);
 
 			glUseProgram(_3DNoiseMapPipelineComputeShader);
@@ -220,13 +234,33 @@ namespace Core
 			);
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		}
-		void TerrainPaint(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth) {
-			int sizeOfNoiseMap = width * height * depth;
 
+		void SampleDistanceToAir(VoxelCubeMesh& mesh, int width, int height, int depth) {
+
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh.distanceToAirSSBO);
+			
+
+			glUseProgram(_distanceToAirComputeShader);
+
+			glUniform1i(_distanceToAirWidthLoc, width);
+			glUniform1i(_distanceToAirHeightLoc, height);
+			glUniform1i(_distanceToAirDepthLoc, depth);
+
+			glDispatchCompute(
+				(GLuint)ceil(width / 8.0f),
+				(GLuint)ceil(height / 8.0f),
+				(GLuint)ceil(depth / 8.0f)
+			);
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+		}
+		void TerrainPaint(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth) {
+			int maxActiveVoxels = width * height * depth;
 
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ab.getCounterSSBO());
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.getDataSSBO());
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, mesh.distanceToAirSSBO);
 
 			glUseProgram(_voxelTerrainPainterComputeShader);
 
@@ -234,11 +268,9 @@ namespace Core
 			glUniform1i(_paintHeightLoc, height);
 			glUniform1i(_paintDepthLoc, depth);
 
-			glDispatchCompute(
-				(GLuint)ceil(width / 8.0f),
-				(GLuint)ceil(height / 8.0f),
-				(GLuint)ceil(depth / 8.0f)
-			);
+			int numGroups = (maxActiveVoxels + 63) / 64;
+
+			glDispatchCompute(numGroups, 1, 1);
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
@@ -385,13 +417,15 @@ namespace Core
 			spline.points.push_back(SplinePoint(0.98f, 1.4f));
 			spline.points.push_back(SplinePoint(1.0f, 1.45f));
 
-			InitializeVoxelCubeMesh(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
+			InitializeVoxelCubeMesh(*cubeMeshData, spline, paddedWidth, paddedHeight, paddedDepth);
 
 			CreateFlat3DNoiseMapPipeLine(*cubeMeshData, spline, paddedWidth, paddedHeight, paddedDepth, offset3D, true, frequency, true);
 
 			AppendBuffer ab(paddedWidth, paddedHeight, paddedDepth);
 
 			PerformVoxelCubesSurfaceCulling(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, 0.0f);
+
+			SampleDistanceToAir(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
 
 			TerrainPaint(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth);
 
@@ -400,6 +434,7 @@ namespace Core
 			InitializeVoxelCubeMeshSize(*cubeMeshData, quadCount);
 
 			VoxelCubesGeometryInit(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, quadCount, CleanUp);
+			glDeleteBuffers(1, &cubeMeshData->distanceToAirSSBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingVBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingIBO);
 			glDeleteBuffers(1, &cubeMeshData->splineSSBO);

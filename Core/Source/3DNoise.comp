@@ -191,5 +191,5 @@ void main(){
 								)) ? -5.0 : 0.0;
 	float combinedCheeseCave = (cheeseCaves < 0.5f) ? -5.0f: 0.0f;
 	uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
-	noiseMap[index] = terrainValue + combinedCaveString + combinedCheeseCave > 0.5 ? 1 : -1;
+	noiseMap[index] = terrainValue + combinedCaveString + combinedCheeseCave > 0.5 ? 3 : -1;
 }

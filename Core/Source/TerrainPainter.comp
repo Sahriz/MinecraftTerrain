@@ -15,6 +15,10 @@ layout(std430, binding = 2) buffer ActiveVoxelList {
     uint activeVoxels[]; 
 };
 
+layout(std430, binding = 3) buffer distanceToAirBuffer{
+	int distanceToAirMap[];
+};
+
 
 uniform int width;
 uniform int height;
@@ -29,7 +33,7 @@ bool IsSolid(int x, int y, int z) {
 
 void main(){
 	
-	 uint listIdx = gl_GlobalInvocationID.x;
+	uint listIdx = gl_GlobalInvocationID.x;
 
 	if (listIdx >= totalActiveCount) return;
 
@@ -43,12 +47,17 @@ void main(){
 
 	if(!IsSolid(x,y,z)) return;
 
-	if(!IsSolid(x,y + 1, z)) return;
-
 	int index = x + y * (width) + z * (width) * (height);
-	for(int i = 1; i < 5; i++){
-		if(!IsSolid(x,y+i,z)){blockIDs[index] = 2; return;}
+	int dist = distanceToAirMap[index];
+	// Use a simple hash for noise if you don't have a texture
+    float n = fract(sin(dot(vec2(x,z), vec2(12.9898, 45.164))) * 43758.5453);
+    float threshold = 3.0 + (n * 5.0);
+	if(distanceToAirMap[index] == 1){
+		blockIDs[index] = 1;
+		return;
 	}
-	
-	blockIDs[index] = 3;
+
+	else if(dist > 1 && float(dist) < threshold){
+		blockIDs[index] = 2;
+	}
 }

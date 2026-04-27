@@ -78,7 +78,7 @@ namespace Core {
 
 		// GPU IDs
 		GLuint vao = 0, vbo = 0, ibo = 0;
-		GLuint blockID_SSBO = 0, indirectBuffer = 0, densitySSBO = 0;
+		GLuint blockID_SSBO = 0, distanceToAirSSBO = 0, indirectBuffer = 0, densitySSBO = 0;
 		GLuint splineSSBO = 0, ssboVertexCounter = 0;
 		GLuint stagingVBO = 0, stagingIBO = 0, stagingIndirect = 0;
 		GLsync syncObj = nullptr;
@@ -106,6 +106,7 @@ namespace Core {
 				ibo = other.ibo;
 				blockID_SSBO = other.blockID_SSBO;
 				indirectBuffer = other.indirectBuffer;
+				distanceToAirSSBO = other.distanceToAirSSBO;
 				densitySSBO = other.densitySSBO;
 				splineSSBO = other.splineSSBO;
 				ssboVertexCounter = other.ssboVertexCounter;
@@ -122,6 +123,7 @@ namespace Core {
 				other.vbo = 0;
 				other.ibo = 0;
 				other.blockID_SSBO = 0;
+				other.indirectBuffer = 0;
 				other.indirectBuffer = 0;
 				other.densitySSBO = 0;
 				other.splineSSBO = 0;
@@ -146,6 +148,7 @@ namespace Core {
 			if (ibo) glDeleteBuffers(1, &ibo);
 			if (blockID_SSBO) glDeleteBuffers(1, &blockID_SSBO);
 			if (indirectBuffer) glDeleteBuffers(1, &indirectBuffer);
+			if (distanceToAirSSBO) glDeleteBuffers(1, &distanceToAirSSBO);
 			if (densitySSBO) glDeleteBuffers(1, &densitySSBO);
 			if (splineSSBO) glDeleteBuffers(1, &splineSSBO);
 			if (stagingVBO) glDeleteBuffers(1, &stagingVBO);
@@ -153,13 +156,14 @@ namespace Core {
 			if (syncObj) glDeleteSync(syncObj);
 
 			// Reset everything to default
-			vao = vbo = ibo = blockID_SSBO = indirectBuffer = densitySSBO = splineSSBO = stagingVBO = stagingIBO = 0;
+			vao = vbo = ibo = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = splineSSBO = stagingVBO = stagingIBO = 0;
 			syncObj = nullptr;
 			gpuLoaded = false;
 		}
 	};
 	
 	extern GLuint _3DNoiseMapPipelineComputeShader;
+	extern GLuint _distanceToAirComputeShader;
 	extern GLuint _voxelCubesGeometryInitComputeShader;
 	extern GLuint _voxelCubesTriangleCounterComputeShader;
 	extern GLuint _voxelTerrainPainterComputeShader;
@@ -172,6 +176,10 @@ namespace Core {
 	extern GLint _noiseFrequencyLoc;
 	extern GLint _noiseDropoffLoc;
 	extern GLint _noiseSplinePointsLoc;
+
+	extern GLint _distanceToAirWidthLoc;
+	extern GLint _distanceToAirHeightLoc;
+	extern GLint _distanceToAirDepthLoc;
 
 	extern GLint _paintWidthLoc;
 	extern GLint _paintHeightLoc;
@@ -193,9 +201,10 @@ namespace Core {
 	void InitUniformLocations();
 	void Cleanup();
 
-	void InitializeVoxelCubeMesh(VoxelCubeMesh& mesh, int width, int height, int depth);
+	void InitializeVoxelCubeMesh(VoxelCubeMesh& mesh, const Spline spline, int width, int height, int depth);
 	void InitializeVoxelCubeMeshSize(VoxelCubeMesh& mesh, int size);
 	void CreateFlat3DNoiseMapPipeLine(VoxelCubeMesh& mesh, const Spline& spline, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff);
+	void SampleDistanceToAir(VoxelCubeMesh& mesh, int width, int height, int depth);
 	void TerrainPaint(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth);
 
 	void PerformVoxelCubesSurfaceCulling(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth, float isoLevel);
