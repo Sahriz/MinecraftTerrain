@@ -6,10 +6,6 @@ layout(std430, binding = 0) buffer noiseBuffer{
 	int noiseMap[];
 };
 
-layout(std430, binding = 1) buffer SplineBuffer{
-	vec2 splinePoints[];
-};
-
 uniform int width;
 uniform int height;
 uniform int depth;
@@ -17,8 +13,6 @@ uniform vec3 offset;
 
 uniform float frequency;
 uniform bool useHeightDropoff;
-
-uniform int splinePointsCount;
 
 /* discontinuous pseudorandom uniformly distributed in [-0.5, +0.5]^3 */
 vec3 random3(vec3 c) {
@@ -138,7 +132,26 @@ void main(){
 	
 	vec3 position = vec3((int(xPos) + offset.x)/float(width), (int(yPos) + offset.y)/float(height),(int(zPos) + offset.z)/float(depth));
 
-	
+    float continental = snoise2D(worldPos2D * 0.0008); // Extremely low frequency
+    continental = 0.63*smoothstep(-0.2, 0.5, continental); // Push it towards 0 or 1	
+
+    float erosion = snoise2D(worldPos2D*0.002);
+    erosion = -40*max(smoothstep(-0.15, 0.05, erosion), smoothstep(0.05, -0.15, erosion));
+
+    float continentalBackwards = max(0.0, 0.63-continental);
+    
+    float mountainDetail = 0.0;
+    float f = 0.002;
+    float a = 1.0;
+    for(int i = 0; i < 5; i++) {
+        // Use "Ridged Noise" for mountains: 1.0 - abs(noise)
+        // This creates sharp peaks instead of round hills
+        float n = snoise2D(worldPos2D * f);
+        mountainDetail += (1.0 - abs(n)) * a; 
+        f *= 2.0;
+        a *= 0.5;
+    }
+
 	float surfaceHeight = 0.0;
     float f2D = 0.0005; // Zoomed out for large rolling hills
     float a2D = 1.0;
@@ -157,12 +170,18 @@ void main(){
 
     float baseHeight = 0.3 * float(height);
     float heightVariation = float(height) * 0.4;
-	float finalTerrainHeight = baseHeight + (surfaceHeight * heightVariation);
+    float erosionVariation = erosion * (max(0.0,continentalBackwards-0.0));
+	float finalTerrainHeight = (height * 0.2) + (mountainDetail * (height * 0.6) * continental) - erosionVariation;
+
+    float density = finalTerrainHeight - float(yPos);
+
+    // 2. Add 3D "Overhang" Noise
+    vec3 pos3D = vec3(xPos, yPos, zPos) + offset;
+    float overhangNoise = snoise(pos3D * 0.02) * 20.0; // Scale/Frequency determine the "chunkiness"
+
+    density += overhangNoise * continental;
+
     uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
-	if (float(yPos) > finalTerrainHeight) {
-        noiseMap[index] = -1; // Air
-        return;               // Exit the thread immediately! GPU skips 3D math.
-    }
 
 	
 
@@ -190,11 +209,15 @@ void main(){
     // Optional: Add a curve so caves stay common until the very top, then rapidly disappear.
     float caveThreshold = mix(bottomThreshold, topThreshold, pow(normalizedHeight, 2.0));
 
-    if (caveNoise > caveThreshold) {
-        noiseMap[index] = -1; // Carve out a cave!
+    // 4. Final Decision
+    if (density > 0.0) {
+        // Run your cave logic here to "chip away" at the density
+        if (caveNoise > caveThreshold) {
+            noiseMap[index] = -1; // Cave air
+        } else {
+            noiseMap[index] = 1;  // Stone
+        }
     } else {
-        // Solid ground!
-        // Future feature: if float(yPos) >= finalTerrainHeight - 2.0, output Grass ID, else output Stone ID
-        noiseMap[index] = 1; 
+        noiseMap[index] = -1; // Air
     }
 }
