@@ -121,6 +121,26 @@ float snoiseFractal(vec3 m) {
 				+0.0666667* snoise(8.0*m);
 }
 
+float continentalnessSpline(float noise){
+	float x0 = 0.0, y0 = 0.4; 
+	float x1 = 0.3, y1 = 0.6;
+	float x2 = 0.68, y2 = 0.65;
+	float x3 = 1.0, y3 = 0.95;
+
+	if(noise < x1){
+		float t = smoothstep(x0,x1,noise);
+		return mix(y0,y1,t);
+	}
+	else if(noise < x2){
+		float t = (noise-x1)/(x2-x1);
+		return mix(y1,y2,t);
+	}
+	else{
+		float t = smoothstep(x2,x3,noise);
+		return mix(y2,y3,t);
+	}
+}
+
 void main(){
 	uint xPos = gl_GlobalInvocationID.x;
 	uint yPos = gl_GlobalInvocationID.y;
@@ -129,94 +149,33 @@ void main(){
 	if(xPos >= uint(width) || yPos >= uint(height) || zPos >= uint(depth)) return;
 	
 	vec2 worldPos2D = vec2((int(xPos) + offset.x), (int(zPos) + offset.z));
+	vec3 worldPos3D = vec3((int(xPos) + offset.x), (int(yPos)), (int(zPos) + offset.z));
+
+	float continentalness = snoise2D(vec2(932,1732)+worldPos2D*0.0004);
+	float normalizedNoise = continentalness * 0.5 + 0.5; // Map -1..1 to 0..1
+	float continentalnessSplineNoise = continentalnessSpline(continentalness);
+
+	float terrainShape = 0;
+	float amp = 1.0;
+	float freq = 0.0001;
+	float maxHeightPossible = 0;
+	for(int i = 0; i < 5; i++){
+	terrainShape += amp * snoise(worldPos3D * freq);
+	maxHeightPossible += amp;
+	freq *= 2.0;
+	amp *= 0.5;
+	}
+	terrainShape /= maxHeightPossible;
 	
-	vec3 position = vec3((int(xPos) + offset.x)/float(width), (int(yPos) + offset.y)/float(height),(int(zPos) + offset.z)/float(depth));
-
-    float continental = snoise2D(worldPos2D * 0.0008); // Extremely low frequency
-    continental = 0.63*smoothstep(-0.2, 0.5, continental); // Push it towards 0 or 1	
-
-    float erosion = snoise2D(worldPos2D*0.002);
-    erosion = -40*max(smoothstep(-0.15, 0.05, erosion), smoothstep(0.05, -0.15, erosion));
-
-    float continentalBackwards = max(0.0, 0.63-continental);
-    
-    float mountainDetail = 0.0;
-    float f = 0.002;
-    float a = 1.0;
-    for(int i = 0; i < 5; i++) {
-        // Use "Ridged Noise" for mountains: 1.0 - abs(noise)
-        // This creates sharp peaks instead of round hills
-        float n = snoise2D(worldPos2D * f);
-        mountainDetail += (1.0 - abs(n)) * a; 
-        f *= 2.0;
-        a *= 0.5;
-    }
-
-	float surfaceHeight = 0.0;
-    float f2D = 0.0005; // Zoomed out for large rolling hills
-    float a2D = 1.0;
-    float totalAmplitude = 0.0;
-
-	for(int i = 0; i < 4; i++) {
-        // We use worldPos2D * frequency directly.
-        surfaceHeight += a2D * snoise2D(worldPos2D * f2D);
-        totalAmplitude += a2D;
-        f2D *= 2.0;
-        a2D *= 0.5;
-    }
-
-	// Normalize height map from [-1, 1] to roughly [0, 1]
-    surfaceHeight = (surfaceHeight / totalAmplitude) * 0.5 + 0.5;
-
-    float baseHeight = 0.3 * float(height);
-    float heightVariation = float(height) * 0.4;
-    float erosionVariation = erosion * (max(0.0,continentalBackwards-0.0));
-	float finalTerrainHeight = (height * 0.2) + (mountainDetail * (height * 0.6) * continental) - erosionVariation;
-
-    float density = finalTerrainHeight - float(yPos);
-
-    // 2. Add 3D "Overhang" Noise
-    vec3 pos3D = vec3(xPos, yPos, zPos) + offset;
-    float overhangNoise = snoise(pos3D * 0.02) * 20.0; // Scale/Frequency determine the "chunkiness"
-
-    density += overhangNoise * continental;
+	float density = continentalnessSplineNoise - float(yPos)/float(height);
 
     uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
 
-	
-
-	vec3 position3D = vec3((int(xPos) + offset.x), (int(yPos) + offset.y), (int(zPos) + offset.z));
-    
-    float caveNoise = 0.0;
-    float f3D = 0.01; // Slightly higher frequency for blocky caves
-    float a3D = 1.0;
-    
-    for(int i = 0; i < 3; i++) { // Only 3 octaves needed for caves, saving more performance!
-        caveNoise += a3D * snoise(position3D * f3D);
-        f3D *= 2.0;
-        a3D *= 0.5;
-    }
-
-	float normalizedHeight = float(yPos) / finalTerrainHeight;
-
-    // 2. Define our bounds (You should pass these in as Uniforms eventually!)
-    float bottomThreshold = -0.1; // Lower number = more caves deep underground
-    float topThreshold = 0.6;     // Higher number = almost no caves near the surface
-
-    // 3. Smoothly blend between them based on our height
-    //float caveThreshold = mix(bottomThreshold, topThreshold, normalizedHeight);
-
-    // Optional: Add a curve so caves stay common until the very top, then rapidly disappear.
-    float caveThreshold = mix(bottomThreshold, topThreshold, pow(normalizedHeight, 2.0));
-
     // 4. Final Decision
     if (density > 0.0) {
-        // Run your cave logic here to "chip away" at the density
-        if (caveNoise > caveThreshold) {
-            noiseMap[index] = -1; // Cave air
-        } else {
-            noiseMap[index] = 1;  // Stone
-        }
+
+        noiseMap[index] = 1;  // Stone
+
     } else {
         noiseMap[index] = -1; // Air
     }
