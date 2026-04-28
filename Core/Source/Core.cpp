@@ -99,7 +99,7 @@ namespace Core
 		}
 
 		void InitShaders() {
-			_3DNoiseMapPipelineComputeShader = CreateComputeShaderProgram("Core/Source/3DNoiseExpirimant.comp");
+			_3DNoiseMapPipelineComputeShader = CreateComputeShaderProgram("Core/Source/3DNoise.comp");
 			_distanceToAirComputeShader = CreateComputeShaderProgram("Core/Source/distanceToAir.comp");
 			_voxelCubesGeometryInitComputeShader = CreateComputeShaderProgram("Core/Source/GeometryInit.comp");
 			_voxelCubesTriangleCounterComputeShader = CreateComputeShaderProgram("Core/Source/CountTriangles.comp");
