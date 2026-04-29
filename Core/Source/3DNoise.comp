@@ -122,10 +122,10 @@ float snoiseFractal(vec3 m) {
 }
 
 float continentalnessSpline(float noise){
-	float x0 = 0.0, y0 = 0.4; 
-	float x1 = 0.3, y1 = 0.6;
-	float x2 = 0.68, y2 = 0.65;
-	float x3 = 1.0, y3 = 0.95;
+	float x0 = 0.0, y0 = 0.2; 
+	float x1 = 0.5, y1 = 0.45;
+	float x2 = 0.75, y2 = 0.50;
+	float x3 = 0.80, y3 = 0.70;
 
 	if(noise < x1){
 		float t = smoothstep(x0,x1,noise);
@@ -141,6 +141,21 @@ float continentalnessSpline(float noise){
 	}
 }
 
+float erosionSpline(float noise) {
+    float x0 = 0.0; float y0 = 0.8;  // Low erosion = High mountains
+    float x1 = 0.4; float y1 = 0.5;  // Mid erosion = Rolling hills
+    float x2 = 0.6; float y2 = 0.40; // High erosion = Very flat
+    float x3 = 1.0; float y3 = 0.01; // Max erosion = Near perfectly flat
+
+    if(noise < x1) {
+        return mix(y0, y1, smoothstep(x0, x1, noise));
+    } else if(noise < x2) {
+        return mix(y1, y2, (noise - x1) / (x2 - x1));
+    } else {
+        return mix(y2, y3, smoothstep(x2, x3, noise));
+    }
+}
+
 void main(){
 	uint xPos = gl_GlobalInvocationID.x;
 	uint yPos = gl_GlobalInvocationID.y;
@@ -151,23 +166,33 @@ void main(){
 	vec2 worldPos2D = vec2((int(xPos) + offset.x), (int(zPos) + offset.z));
 	vec3 worldPos3D = vec3((int(xPos) + offset.x), (int(yPos)), (int(zPos) + offset.z));
 
-	float continentalness = snoise2D(vec2(932,1732)+worldPos2D*0.0004);
-	float normalizedNoise = continentalness * 0.5 + 0.5; // Map -1..1 to 0..1
-	float continentalnessSplineNoise = continentalnessSpline(continentalness);
+	float continentalness = snoise2D(vec2(932,1732)+worldPos2D*0.0006);
+	float normalizedContinentalness = continentalness * 0.5 + 0.5; // Map -1..1 to 0..1
+	float continentalnessSplineNoise = continentalnessSpline(normalizedContinentalness);
+
+	float erosion = snoise2D(vec2(4382, 32) + worldPos2D*0.002);
+	float normalizedErosion = erosion * 0.5 + 0.5; // Map -1..1 to 0..1
+	float erosionSplineNoise = erosionSpline(normalizedErosion);
+
+	float lowlandMask = smoothstep(0.55, 0.70, continentalnessSplineNoise);
+
+	float finalNoiseAmplitude = erosionSplineNoise * mix(0.1, 1.0, lowlandMask);
+	
 
 	float terrainShape = 0;
 	float amp = 1.0;
-	float freq = 0.0001;
+	float freq = 0.003;
 	float maxHeightPossible = 0;
 	for(int i = 0; i < 5; i++){
-	terrainShape += amp * snoise(worldPos3D * freq);
-	maxHeightPossible += amp;
-	freq *= 2.0;
-	amp *= 0.5;
+		terrainShape += amp * snoise(worldPos3D * freq);
+		maxHeightPossible += amp;
+		freq *= 2.0;
+		amp *= 0.5;
 	}
 	terrainShape /= maxHeightPossible;
-	
-	float density = continentalnessSplineNoise - float(yPos)/float(height);
+
+	float heightPercentage = float(yPos)/float(height);
+	float density = continentalnessSplineNoise - heightPercentage + (terrainShape*finalNoiseAmplitude);
 
     uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
 
