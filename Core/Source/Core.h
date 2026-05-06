@@ -70,6 +70,7 @@ namespace Core {
 		GLuint ssboVertexCounter = 0;
 		GLuint stagingVBO = 0, stagingIBO = 0, stagingIndirect = 0;
 		GLsync syncObj = nullptr;
+		glm::vec2 offset;
 
 		// Logic data
 		int indexCount = 0;

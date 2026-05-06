@@ -379,6 +379,7 @@ namespace Core
 			int paddedWidth = width + 2;
 			int paddedHeight = height + 2;
 			int paddedDepth = depth + 2;
+			cubeMeshData->offset = offset;
 
 			glm::vec3 offset3D = glm::vec3(offset.x, 0, offset.y);
 
@@ -399,11 +400,13 @@ namespace Core
 			InitializeVoxelCubeMeshSize(*cubeMeshData, quadCount);
 
 			VoxelCubesGeometryInit(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, quadCount, CleanUp);
+			glDeleteBuffers(1, &cubeMeshData->blockID_SSBO);
 			glDeleteBuffers(1, &cubeMeshData->distanceToAirSSBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingVBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingIBO);
 			glDeleteBuffers(1, &cubeMeshData->ssboVertexCounter);
 			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);
+			
 
 			return cubeMeshData;
 		}
