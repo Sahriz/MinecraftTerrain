@@ -15,7 +15,7 @@ void ChunkRenderer::UpdateActiveChunk(const glm::vec3& position, ChunkManager& c
 					_activeChunkSet.insert(coord);
 					// Generate if not yet stored
 					if (!chunkMap[coord].get()->gpuLoaded) {
-						SetupChunkRenderData(*chunkMap[coord]);
+						//SetupChunkRenderData(*chunkMap[coord]);
 					}
 				}
 			}

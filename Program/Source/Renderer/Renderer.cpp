@@ -226,7 +226,7 @@ void Renderer::DrawChunks(ChunkManager& chunkManager, Player& player) {
 				// Mandatory for Indirect: Bind the buffer to the INDIRECT_BUFFER target
 				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, voxelData->indirectBuffer);
 				glUniform2fv(_offsetUniformLoc, 1, &voxelData->offset[0]);
-				glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)0);
+				glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0);
 			}
 		}
 

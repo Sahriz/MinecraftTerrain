@@ -1,5 +1,8 @@
 #version 430 core
 
+// 1. Enable the 16-bit storage extension
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) buffer NoiseBuffer{
@@ -7,7 +10,7 @@ layout(std430, binding = 0) buffer NoiseBuffer{
 };
 
 layout(std430, binding = 2) buffer IndexBuffer{
-    int indices[];
+    uint16_t indices[];
 };
 
 layout(std430, binding = 3) buffer IndirectBuffer {
@@ -55,6 +58,15 @@ bool IsSolid(int x, int y, int z) {
     return blockIDs[index] >= 0;
 }
 
+ // Normals for each face
+    const uint faceNormals[6] = uint[](
+        0x0u, 0x1u, 0x2u, 0x3u, 0x4u, 0x5u
+        
+    );
+
+    const uint u[4] = uint[](0, 1, 1, 0); 
+    const uint v[4] = uint[](0, 0, 1, 1);
+
 void main(){
 
 	 uint listIdx = gl_GlobalInvocationID.x;
@@ -78,14 +90,7 @@ void main(){
         ivec3(1,0,0), ivec3(-1,0,0), ivec3(0,1,0), ivec3(0,-1,0), ivec3(0,0,1), ivec3(0,0,-1)
     );
 
-    // Normals for each face
-    uint faceNormals[6] = uint[](
-        0x0u, 0x1u, 0x2u, 0x3u, 0x4u, 0x5u
-        
-    );
-
-    uint u[4] = uint[](0, 1, 1, 0); 
-    uint v[4] = uint[](0, 0, 1, 1);
+   
 
     for (int f = 0; f < 6; f++) {
         ivec3 neighborPos = position + dirs[f];
@@ -150,12 +155,12 @@ void main(){
             
 
             // 5. Write to Index Buffer
-            indices[iStart + 0] = vStart + 0;
-            indices[iStart + 1] = vStart + 2;
-            indices[iStart + 2] = vStart + 1;
-            indices[iStart + 3] = vStart + 0;
-            indices[iStart + 4] = vStart + 3;
-            indices[iStart + 5] = vStart + 2;
+            indices[iStart + 0] = uint16_t(vStart + 0);
+            indices[iStart + 1] = uint16_t(vStart + 2);
+            indices[iStart + 2] = uint16_t(vStart + 1);
+            indices[iStart + 3] = uint16_t(vStart + 0);
+            indices[iStart + 4] = uint16_t(vStart + 3);
+            indices[iStart + 5] = uint16_t(vStart + 2);
         }
     }
 }

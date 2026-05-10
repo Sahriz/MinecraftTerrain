@@ -99,7 +99,7 @@ namespace Core
 		}
 
 		void InitShaders() {
-			_3DNoiseMapPipelineComputeShader = CreateComputeShaderProgram("Core/Source/3DNoise.comp");
+			_3DNoiseMapPipelineComputeShader = CreateComputeShaderProgram("Core/Source/3DNoiseExpirimant.comp");
 			_distanceToAirComputeShader = CreateComputeShaderProgram("Core/Source/distanceToAir.comp");
 			_voxelCubesGeometryInitComputeShader = CreateComputeShaderProgram("Core/Source/GeometryInit.comp");
 			_voxelCubesTriangleCounterComputeShader = CreateComputeShaderProgram("Core/Source/CountTriangles.comp");
@@ -178,7 +178,7 @@ namespace Core
 
 				glGenBuffers(1, &mesh.ibo);
 				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.ibo);
-				glBufferData(GL_SHADER_STORAGE_BUFFER, 6 * size * sizeof(int), NULL, GL_DYNAMIC_COPY);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, 6 * size * sizeof(uint16_t), NULL, GL_DYNAMIC_COPY);
 
 				// 3. Setup Vertex Counter (FIX: pass memory address of 0, not literal 0)
 				int initialVertex = 0;
@@ -409,6 +409,8 @@ namespace Core
 			glDeleteBuffers(1, &cubeMeshData->stagingIBO);
 			glDeleteBuffers(1, &cubeMeshData->ssboVertexCounter);
 			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);
+			glDeleteBuffers(1, &cubeMeshData->blockID_SSBO);
+			cubeMeshData->blockID_SSBO = 0;
 
 			return cubeMeshData;
 		}
