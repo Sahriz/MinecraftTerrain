@@ -87,6 +87,7 @@ private:
     GLint _viewLoc;
     GLint _normalMatrixLocation;
     GLint _textureUniformLoc;
+    GLint _offsetUniformLoc;
     GLuint textureID;
 
     void Init();

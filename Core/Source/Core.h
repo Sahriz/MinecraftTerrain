@@ -66,6 +66,7 @@ namespace Core {
 
 		// GPU IDs
 		GLuint vao = 0, vbo = 0, ibo = 0;
+		GLuint packedData_SSBO = 0;
 		GLuint blockID_SSBO = 0, distanceToAirSSBO = 0, indirectBuffer = 0, densitySSBO = 0;
 		GLuint ssboVertexCounter = 0;
 		GLuint stagingVBO = 0, stagingIBO = 0, stagingIndirect = 0;
@@ -92,6 +93,7 @@ namespace Core {
 				vao = other.vao;
 				vbo = other.vbo;
 				ibo = other.ibo;
+				packedData_SSBO = other.packedData_SSBO;
 				blockID_SSBO = other.blockID_SSBO;
 				indirectBuffer = other.indirectBuffer;
 				distanceToAirSSBO = other.distanceToAirSSBO;
@@ -104,11 +106,13 @@ namespace Core {
 				indexCount = other.indexCount;
 				maxQuards = other.maxQuards;
 				gpuLoaded = other.gpuLoaded;
+				offset = other.offset;
 
 				// CRITICAL: Set 'other' to 0 so its destructor doesn't delete the buffers we just stole
 				other.vao = 0;
 				other.vbo = 0;
 				other.ibo = 0;
+				other.packedData_SSBO = 0;
 				other.blockID_SSBO = 0;
 				other.indirectBuffer = 0;
 				other.indirectBuffer = 0;
@@ -119,6 +123,7 @@ namespace Core {
 				other.stagingIndirect = 0;
 				other.syncObj = nullptr;
 				other.gpuLoaded = false;
+				other.offset = glm::vec3(0);
 			}
 			return *this;
 		}
@@ -132,6 +137,7 @@ namespace Core {
 			if (vao) glDeleteVertexArrays(1, &vao);
 			if (vbo) glDeleteBuffers(1, &vbo);
 			if (ibo) glDeleteBuffers(1, &ibo);
+			if (packedData_SSBO) glDeleteBuffers(1, &packedData_SSBO);
 			if (blockID_SSBO) glDeleteBuffers(1, &blockID_SSBO);
 			if (indirectBuffer) glDeleteBuffers(1, &indirectBuffer);
 			if (distanceToAirSSBO) glDeleteBuffers(1, &distanceToAirSSBO);
@@ -141,7 +147,7 @@ namespace Core {
 			if (syncObj) glDeleteSync(syncObj);
 
 			// Reset everything to default
-			vao = vbo = ibo = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = 0;
+			vao = vbo = ibo = packedData_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = 0;
 			syncObj = nullptr;
 			gpuLoaded = false;
 		}

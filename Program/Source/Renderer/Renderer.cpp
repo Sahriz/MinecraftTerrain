@@ -71,6 +71,7 @@ Renderer::Renderer() {
 	_viewLoc = glGetUniformLocation(_shaderProgram, "uView");
 	_normalMatrixLocation = glGetUniformLocation(_shaderProgram, "normalMatrix");
 	_textureUniformLoc = glGetUniformLocation(_shaderProgram, "uTexture");
+	_offsetUniformLoc = glGetUniformLocation(_shaderProgram, "offset");
 
 
 	glUniform1f(_widthLocation, _screenWidth);
@@ -224,7 +225,7 @@ void Renderer::DrawChunks(ChunkManager& chunkManager, Player& player) {
 
 				// Mandatory for Indirect: Bind the buffer to the INDIRECT_BUFFER target
 				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, voxelData->indirectBuffer);
-
+				glUniform2fv(_offsetUniformLoc, 1, &voxelData->offset[0]);
 				glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)0);
 			}
 		}

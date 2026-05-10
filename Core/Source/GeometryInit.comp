@@ -74,7 +74,7 @@ void main(){
     position.y = int((packedID >> 10) & 0x3FF);
     position.z = int((packedID >> 20) & 0x3FF);    
     
-    vec3 base = vec3(position) + offset;
+    vec3 base = vec3(position);
     float tileW = 1.0 / columns;
     float tileH = 1.0 / rows;
 
