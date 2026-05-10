@@ -172,9 +172,9 @@ namespace Core
 			if (size > -1) {
 				mesh.maxQuards = size;
 
-				glGenBuffers(1, &mesh.vbo);
-				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.vbo);
-				glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * size * sizeof(VoxelCubeCombinedVertex), NULL, GL_DYNAMIC_COPY);
+				glGenBuffers(1, &mesh.packedData_SSBO);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.packedData_SSBO);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * size * sizeof(uint32_t), NULL, GL_DYNAMIC_COPY);
 
 				glGenBuffers(1, &mesh.ibo);
 				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.ibo);
@@ -188,19 +188,14 @@ namespace Core
 
 				glBindVertexArray(mesh.vao);
 
-				glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
-				int stride = 48; // Assuming 48 bytes per vertex
-				glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, stride, (void*)0);
+				glBindBuffer(GL_ARRAY_BUFFER, mesh.packedData_SSBO);
+
+				glVertexAttribIPointer(0, 1, GL_UNSIGNED_INT, sizeof(uint32_t), (void*)0);
 				glEnableVertexAttribArray(0);
-				glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, (void*)16);
-				glEnableVertexAttribArray(1);
-				glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)32);
-				glEnableVertexAttribArray(2);
 
 				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ibo);
 
 				glBindVertexArray(0);
-
 				mesh.gpuLoaded = true;
 			}
 		}
@@ -296,7 +291,10 @@ namespace Core
 				(GLuint)ceil(depth / 8.0f));
 
 			// 6. Memory Barrier: Ensure the Active List is built before the Counting step starts
-			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
+				GL_ELEMENT_ARRAY_BARRIER_BIT |
+				GL_COMMAND_BARRIER_BIT |
+				GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
 		int VoxelCubesQuadCount(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, bool CleanUp) {
@@ -329,7 +327,10 @@ namespace Core
 			
 				glDispatchCompute(numGroups, 1, 1);
 			}
-			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
+				GL_ELEMENT_ARRAY_BARRIER_BIT |
+				GL_COMMAND_BARRIER_BIT |
+				GL_SHADER_STORAGE_BARRIER_BIT);
 
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboCounter);
 			int* ptr = (int*)glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
@@ -350,12 +351,12 @@ namespace Core
 			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &activeCount);
 
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh.vbo);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mesh.ibo);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, mesh.indirectBuffer);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, mesh.ssboVertexCounter);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ab.getCounterSSBO());
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, ab.getDataSSBO());
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, mesh.packedData_SSBO);
 
 			glUseProgram(_voxelCubesGeometryInitComputeShader);
 
@@ -370,12 +371,16 @@ namespace Core
 			//std::cout << activeCount << std::endl;
 			glDispatchCompute(numGroups, 1, 1);
 
-			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
+				GL_ELEMENT_ARRAY_BARRIER_BIT |
+				GL_COMMAND_BARRIER_BIT |
+				GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
 		std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int height, int depth, glm::vec2 offset, bool CleanUp, const float amplitude, const float frequency, const float persistance, const float lacunarity, const int octaves, const bool useDropoff) {
 			std::unique_ptr<VoxelCubeMesh> cubeMeshData = std::make_unique<VoxelCubeMesh>();
 			cubeMeshData->gpuLoaded = true;
+			cubeMeshData->offset = offset;
 			int paddedWidth = width + 2;
 			int paddedHeight = height + 2;
 			int paddedDepth = depth + 2;

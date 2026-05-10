@@ -26,19 +26,10 @@ void ChunkRenderer::SetupChunkRenderData(Core::VoxelCubeMesh& mesh) {
 	
 	glBindVertexArray(mesh.vao);
 
-	glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, mesh.packedData_SSBO);
 
-	// Position (Location 0) - 3 floats
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Core::VoxelCubeCombinedVertex), (void*)offsetof(Core::VoxelCubeCombinedVertex, position));
+	glVertexAttribIPointer(0, 1, GL_UNSIGNED_INT, sizeof(uint32_t), (void*)0);
 	glEnableVertexAttribArray(0);
-
-	// Normal (Location 1) - 3 floats
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Core::VoxelCubeCombinedVertex), (void*)offsetof(Core::VoxelCubeCombinedVertex, normal));
-	glEnableVertexAttribArray(1);
-
-	// UV (Location 2) - 2 floats
-	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Core::VoxelCubeCombinedVertex), (void*)offsetof(Core::VoxelCubeCombinedVertex, uv));
-	glEnableVertexAttribArray(2);
 
 	// IMPORTANT: Bind the index buffer to the VAO
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ibo);

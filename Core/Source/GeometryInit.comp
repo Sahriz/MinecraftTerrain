@@ -1,20 +1,9 @@
 #version 430 core
 
-struct Vertex {
-    vec4 position; // w is ignored
-    vec4 normal;   // w is ignored
-    vec2 uv;
-    vec2 padding;  // Align to 16-byte boundaries
-};
-
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) buffer NoiseBuffer{
 	int blockIDs[];
-};
-
-layout(std430, binding = 1) buffer VertexBuffer{
-	Vertex verts[];
 };
 
 layout(std430, binding = 2) buffer IndexBuffer{
@@ -38,6 +27,10 @@ layout(std430, binding = 5) buffer TotalActiveCount {
 };
 
 layout(std430, binding = 6) buffer ActiveVoxelList { uint activeVoxels[]; };
+
+layout(std430, binding = 7) buffer packedBuffer{
+    uint packedData[];
+};
 
 
 
@@ -86,9 +79,13 @@ void main(){
     );
 
     // Normals for each face
-    vec3 faceNormals[6] = vec3[](
-        vec3(1,0,0), vec3(-1,0,0), vec3(0,1,0), vec3(0,-1,0), vec3(0,0,1), vec3(0,0,-1)
+    uint faceNormals[6] = uint[](
+        0x0u, 0x1u, 0x2u, 0x3u, 0x4u, 0x5u
+        
     );
+
+    uint u[4] = uint[](0, 1, 1, 0); 
+    uint v[4] = uint[](0, 0, 1, 1);
 
     for (int f = 0; f < 6; f++) {
         ivec3 neighborPos = position + dirs[f];
@@ -100,25 +97,25 @@ void main(){
             uint iStart = atomicAdd(count, 6);
 
             // 2. Define geometry (Winding order maintained)
-            vec3 v[4];
+            vec3 vert[4];
             if (f == 0) { // +X (Right)
-                v[0] = base + cornerOffset[1]; v[1] = base + cornerOffset[2];
-                v[2] = base + cornerOffset[6]; v[3] = base + cornerOffset[5];
+                vert[0] = base + cornerOffset[1]; vert[1] = base + cornerOffset[2];
+                vert[2] = base + cornerOffset[6]; vert[3] = base + cornerOffset[5];
             } else if (f == 1) { // -X (Left)
-                v[0] = base + cornerOffset[3]; v[1] = base + cornerOffset[0];
-                v[2] = base + cornerOffset[4]; v[3] = base + cornerOffset[7];
+                vert[0] = base + cornerOffset[3]; vert[1] = base + cornerOffset[0];
+                vert[2] = base + cornerOffset[4]; vert[3] = base + cornerOffset[7];
             } else if (f == 2) { // +Y (Top)
-                v[0] = base + cornerOffset[4]; v[1] = base + cornerOffset[5];
-                v[2] = base + cornerOffset[6]; v[3] = base + cornerOffset[7];
+                vert[0] = base + cornerOffset[4]; vert[1] = base + cornerOffset[5];
+                vert[2] = base + cornerOffset[6]; vert[3] = base + cornerOffset[7];
             } else if (f == 3) { // -Y (Bottom)
-                v[0] = base + cornerOffset[3]; v[1] = base + cornerOffset[2];
-                v[2] = base + cornerOffset[1]; v[3] = base + cornerOffset[0];
+                vert[0] = base + cornerOffset[3]; vert[1] = base + cornerOffset[2];
+                vert[2] = base + cornerOffset[1]; vert[3] = base + cornerOffset[0];
             } else if (f == 4) { // +Z (Front)
-                v[0] = base + cornerOffset[2]; v[1] = base + cornerOffset[3];
-                v[2] = base + cornerOffset[7]; v[3] = base + cornerOffset[6];
+                vert[0] = base + cornerOffset[2]; vert[1] = base + cornerOffset[3];
+                vert[2] = base + cornerOffset[7]; vert[3] = base + cornerOffset[6];
             } else if (f == 5) { // -Z (Back)
-                v[0] = base + cornerOffset[0]; v[1] = base + cornerOffset[1];
-                v[2] = base + cornerOffset[5]; v[3] = base + cornerOffset[4];
+                vert[0] = base + cornerOffset[0]; vert[1] = base + cornerOffset[1];
+                vert[2] = base + cornerOffset[5]; vert[3] = base + cornerOffset[4];
             }
 
             // 3. UV calculation (Top-Left, Bottom-Left, etc.)
@@ -126,25 +123,31 @@ void main(){
             if (f == 2) colIdx = 0.0;      // Top face (Grass)
             else if (f == 3) colIdx = 2.0; // Bottom face (Dirt)
 
-            float u0 = colIdx * tileW;
-            float v0 = rowFromBottom * tileH;
-            float u1 = u0 + tileW;
-            float v1 = v0 + tileH;
+            
 
             // 4. Write to Interleaved Buffer (Matching vec4 struct)
             for (int i = 0; i < 4; i++) {
-                verts[vStart + i].position = vec4(v[i], 1.0);     // vec3 -> vec4
-                verts[vStart + i].normal   = vec4(faceNormals[f], 0.0); // vec3 -> vec4
-            
+
+                vec3 unpackedVert = vert[i];
+                uint x = uint(unpackedVert.x) & 0x1Fu;
+                uint y = uint(unpackedVert.y) & 0x1FFu;
+                uint z = uint(unpackedVert.z) & 0x1Fu;
+                uint packed = (z << 14) | (y << 5) | x;
+                
+                uint unpackedNormal = faceNormals[f];
+
+                packed |= unpackedNormal << 19;
+
+                uint unpackedU = u[i];
+                uint unpackedV =  v[i];
+
+                packed |= (unpackedU << 22);
+                packed |= (unpackedV << 23);  
+
+                packedData[vStart+i] = packed;
                 // Standard UV layout for a quad
             }
-        
-       
-        
-            verts[vStart + 0].uv = vec2(u0, v0);
-            verts[vStart + 1].uv = vec2(u1, v0);
-            verts[vStart + 2].uv = vec2(u1, v1);
-            verts[vStart + 3].uv = vec2(u0, v1);
+            
 
             // 5. Write to Index Buffer
             indices[iStart + 0] = vStart + 0;

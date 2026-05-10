@@ -258,7 +258,6 @@ void Renderer::Render(ChunkManager& chunkManager, Player& player) {
 
 	player.HandleKeyboardInput(deltaTime, _window);
 	_view = player.GetViewMatrix();
-
 	
 	int display_w, display_h;
 	glfwGetFramebufferSize(_window, &display_w, &display_h);

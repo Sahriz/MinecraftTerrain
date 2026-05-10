@@ -65,12 +65,14 @@ namespace Core {
 		VoxelCubeMesh() = default;
 
 		// GPU IDs
-		GLuint vao = 0, vbo = 0, ibo = 0;
+		GLuint vao = 0, ibo = 0;
 		GLuint packedData_SSBO = 0;
 		GLuint blockID_SSBO = 0, distanceToAirSSBO = 0, indirectBuffer = 0, densitySSBO = 0;
 		GLuint ssboVertexCounter = 0;
 		GLuint stagingVBO = 0, stagingIBO = 0, stagingIndirect = 0;
 		GLsync syncObj = nullptr;
+
+		glm::vec2 offset = glm::vec2(0.0);
 
 		// Logic data
 		int indexCount = 0;
@@ -91,7 +93,6 @@ namespace Core {
 
 				// Steal the values
 				vao = other.vao;
-				vbo = other.vbo;
 				ibo = other.ibo;
 				packedData_SSBO = other.packedData_SSBO;
 				blockID_SSBO = other.blockID_SSBO;
@@ -110,18 +111,19 @@ namespace Core {
 
 				// CRITICAL: Set 'other' to 0 so its destructor doesn't delete the buffers we just stole
 				other.vao = 0;
-				other.vbo = 0;
 				other.ibo = 0;
 				other.packedData_SSBO = 0;
 				other.blockID_SSBO = 0;
 				other.indirectBuffer = 0;
-				other.indirectBuffer = 0;
+				other.distanceToAirSSBO = 0;
 				other.densitySSBO = 0;
 				other.ssboVertexCounter = 0;
 				other.stagingVBO = 0;
 				other.stagingIBO = 0;
 				other.stagingIndirect = 0;
 				other.syncObj = nullptr;
+				other.indexCount = 0;
+				other.maxQuards = 0;
 				other.gpuLoaded = false;
 				other.offset = glm::vec3(0);
 			}
@@ -135,7 +137,6 @@ namespace Core {
 	private:
 		void Release() {
 			if (vao) glDeleteVertexArrays(1, &vao);
-			if (vbo) glDeleteBuffers(1, &vbo);
 			if (ibo) glDeleteBuffers(1, &ibo);
 			if (packedData_SSBO) glDeleteBuffers(1, &packedData_SSBO);
 			if (blockID_SSBO) glDeleteBuffers(1, &blockID_SSBO);
@@ -147,7 +148,8 @@ namespace Core {
 			if (syncObj) glDeleteSync(syncObj);
 
 			// Reset everything to default
-			vao = vbo = ibo = packedData_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = 0;
+			vao = ibo = packedData_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = 0;
+			offset = glm::vec2(0);
 			syncObj = nullptr;
 			gpuLoaded = false;
 		}
