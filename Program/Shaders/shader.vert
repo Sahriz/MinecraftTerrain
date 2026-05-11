@@ -12,6 +12,7 @@ uniform vec2 offset;
 out vec3 FragPos;
 out vec3 Normal;
 out vec2 TexCoord;
+out flat uint textureID;
 
 const vec3 normals[] = {
     vec3(1.0,0.0,0.0),
@@ -21,6 +22,8 @@ const vec3 normals[] = {
     vec3(0.0,0.0,1.0),
     vec3(0.0,0.0,-1.0)
 };
+
+
 
 vec3 getNormal(){
     vec3 normal = vec3(0.0);
@@ -44,9 +47,15 @@ vec2 unpackUVs(){
     float V = float((aPackedData >> 23) & 0x1u);
 
     uvs.x = U;
-    uvs.y = V;
+    uvs.y = 1.0-V;
 
     return uvs;
+}
+
+uint unpackTexID(){
+    uint id =  (aPackedData >> 24) & 0xFFu;
+    return (id * 3u) - 3;
+   
 }
 
 void main()
@@ -58,4 +67,9 @@ void main()
     Normal = normalMatrix*normal;
     gl_Position =  projM * uView * vec4(FragPos, 1.0);
     TexCoord = unpackUVs();
+    textureID = unpackTexID();
+    uint base = unpackTexID();
+    if (normal.y > 0.1)  textureID = base;      // Top
+    if (abs(normal.y) < 0.1) textureID = base + 1; // Side
+    if (normal.y < -0.1) textureID = base + 2; // Bottom
 }

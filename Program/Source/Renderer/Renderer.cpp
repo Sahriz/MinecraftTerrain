@@ -94,40 +94,53 @@ Renderer::Renderer() {
 		
 
 		int width, height, channels;
-		stbi_set_flip_vertically_on_load(true);
-		
+
 		unsigned char* data = stbi_load("TerrainLibSpriteMap.png", &width, &height, &channels, 0);
 		if (!data) {
 			std::cerr << "Failed to load texture\n";
 			exit(1);
 		}
 
+		// 1. Determine the format based on the image channels
+		GLenum format = (channels == 4) ? GL_RGBA : GL_RGB;
+		GLenum internalFormat = (channels == 4) ? GL_RGBA8 : GL_RGB8;
+
+		// 2. Generate and Bind the Texture Array
 		glGenTextures(1, &textureID);
-		glBindTexture(GL_TEXTURE_2D, textureID);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, textureID);
 
-		// Texture wrapping/filtering
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		// 3. Allocate Immutable Storage (The "Container")
+		// We need (height / 16) * 3 layers. 
+		int numBlocks = height / 16;
+		int totalLayers = numBlocks * 3;
+		glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, internalFormat, 16, 16, totalLayers);
 
-		GLenum format = GL_RGB;
-		if (channels == 1)      format = GL_RED;
-		else if (channels == 3) format = GL_RGB;
-		else if (channels == 4) format = GL_RGBA;
+		// 4. The Slicer Loop
+		int bytesPerPixel = channels;
+		int rowStride = width * bytesPerPixel;
 
-		glTexImage2D(
-			GL_TEXTURE_2D,
-			0,
-			format,             // internal format
-			width,
-			height,
-			0,
-			format,             // format of 'data'
-			GL_UNSIGNED_BYTE,
-			data
-		);
-		glGenerateMipmap(GL_TEXTURE_2D);
+		glPixelStorei(GL_UNPACK_ROW_LENGTH, width); // Tell GL how wide the master sheet is
+
+		for (int blockY = 0; blockY < numBlocks; blockY++) {
+			for (int column = 0; column < 3; column++) {
+				// Calculate the byte offset to the top-left pixel of this 16x16 square
+				unsigned char* dataPtr = data + (blockY * 16 * rowStride) + (column * 16 * bytesPerPixel);
+
+				int layer = (blockY * 3) + column;
+
+				// Upload this 16x16 slice to its specific layer
+				glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer, 16, 16, 1, format, GL_UNSIGNED_BYTE, dataPtr);
+			}
+		}
+
+		glPixelStorei(GL_UNPACK_ROW_LENGTH, 0); // Reset to default
+
+		// 5. Setup Parameters (Nearest Filtering for Pixel Art)
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
 		stbi_image_free(data);
 	}
 

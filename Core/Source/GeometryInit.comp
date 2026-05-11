@@ -147,7 +147,11 @@ void main(){
                 uint unpackedV =  v[i];
 
                 packed |= (unpackedU << 22);
-                packed |= (unpackedV << 23);  
+                packed |= (unpackedV << 23); 
+
+                uint textureIndex = uint(blockType) & 0xFFu;
+                
+                packed |= (textureIndex << 24);
 
                 packedData[vStart+i] = packed;
                 // Standard UV layout for a quad

@@ -3,11 +3,12 @@
 in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoord;
+in flat uint textureID;
 
 uniform float Width;
 uniform float Height;
 uniform float Time;
-uniform sampler2D uTexture;
+uniform sampler2DArray uTextureArray;
 
 out vec4 FragColor;
 
@@ -26,7 +27,7 @@ void main()
 
     vec3 totalLight = ambientLight + diffuseLight;
 
-    vec4 texColor = texture(uTexture, TexCoord);
+    vec4 texColor = texture(uTextureArray, vec3(TexCoord, float(textureID)));
     FragColor = vec4(totalLight * texColor.rgb, texColor.a);
 
     
