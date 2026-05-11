@@ -1,12 +1,12 @@
 #version 430 core
 
-// 1. Enable the 16-bit storage extension
+//Enable the 16-bit storage extension
 #extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) buffer NoiseBuffer{
-	int blockIDs[];
+	uint16_t blockIDs[];
 };
 
 layout(std430, binding = 2) buffer IndexBuffer{
@@ -55,7 +55,7 @@ uniform float rows;
 
 bool IsSolid(int x, int y, int z) {
     int index = x + y * gridWidth + z * gridWidth * gridHeigth;
-    return blockIDs[index] >= 0;
+    return uint(blockIDs[index]) > 0u;
 }
 
  // Normals for each face
@@ -83,8 +83,7 @@ void main(){
     float tileW = 1.0 / columns;
     float tileH = 1.0 / rows;
 
-    int blockType = blockIDs[position.x + position.y * gridWidth + position.z * gridWidth * gridHeigth];
-    int rowFromBottom = 16 - blockType;
+    uint blockType = uint(blockIDs[position.x + position.y * gridWidth + position.z * gridWidth * gridHeigth]);
     
     ivec3 dirs[6] = ivec3[](
         ivec3(1,0,0), ivec3(-1,0,0), ivec3(0,1,0), ivec3(0,-1,0), ivec3(0,0,1), ivec3(0,0,-1)
@@ -149,7 +148,7 @@ void main(){
                 packed |= (unpackedU << 22);
                 packed |= (unpackedV << 23); 
 
-                uint textureIndex = uint(blockType) & 0xFFu;
+                uint textureIndex = blockType & 0xFFu;
                 
                 packed |= (textureIndex << 24);
 

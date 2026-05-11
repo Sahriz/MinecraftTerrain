@@ -1,9 +1,12 @@
 #version 430 core
 
+//Enable the 16-bit storage extension
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 layout(std430, binding = 0) buffer DensityBuffer{
-    int blockIDs[];
+    uint16_t blockIDs[];
 };
 
 // The counter that tracks how many items we've added
@@ -25,7 +28,7 @@ uniform int depth;
 bool IsAir(int x, int y, int z)
 {
     int index = x + y * (width) + z * (width) * (height);
-    return blockIDs[index] < 0;
+    return uint(blockIDs[index]) < 1u;
 }
 
 void main(){
@@ -35,10 +38,10 @@ void main(){
         return;
     ivec3 pos = position + ivec3(1,1,1);
     int centerIdx = pos.x + pos.y * width + pos.z * width * height;
-    int centerID = blockIDs[centerIdx];
+    uint centerID = uint(blockIDs[centerIdx]);
 
     // Only process solid blocks
-    if (centerID >= 0) {
+    if (centerID > 0) {
         // Check 6 neighbors (Face Culling Logic)
         bool isSurface = IsAir(pos.x + 1, pos.y, pos.z) ||
                          IsAir(pos.x - 1, pos.y, pos.z) ||

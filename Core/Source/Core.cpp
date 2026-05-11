@@ -161,11 +161,11 @@ namespace Core
 
 			glGenBuffers(1, &mesh.blockID_SSBO);
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.blockID_SSBO);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(int), NULL, GL_DYNAMIC_COPY);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(uint16_t), NULL, GL_DYNAMIC_COPY);
 
 			glGenBuffers(1, &mesh.distanceToAirSSBO);
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.distanceToAirSSBO);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(int), NULL, GL_DYNAMIC_COPY);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(uint16_t), NULL, GL_DYNAMIC_COPY);
 		}
 
 		void InitializeVoxelCubeMeshSize(VoxelCubeMesh& mesh, int size) {
