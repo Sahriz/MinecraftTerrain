@@ -3,7 +3,7 @@
 #include <glm.hpp>
 
 #include "Core.h"
-#include "Chunks/ChunkManager.h"
+#include "World/Chunks/ChunkManager.h"
 
 class ChunkRenderer {
 public:

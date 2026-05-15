@@ -20,8 +20,8 @@
 #include <string>
 #include <iomanip>
 
-#include "Chunks/ChunkManager.h"
-#include "Player/Player.h"
+#include "World/Chunks/ChunkManager.h"
+#include "World/Player/Player.h"
 #include "Renderer/ChunkRenderer.h"
 #include "Core.h"
 

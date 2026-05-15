@@ -54,13 +54,21 @@ void main(){
 	uint dist = uint(distanceToAirMap[index]);
 	// Use a simple hash for noise if you don't have a texture
     float n = fract(sin(dot(vec2(x,z), vec2(12.9898, 45.164))) * 43758.5453);
-    float threshold = 3.0 + (n * 5.0);
+    float threshold = 2.0 + (n * 5.0);
+	if(y == 0) {
+		int bedrockIndex = x + (y) * (width) + z * (width) * (height);
+		blockIDs[bedrockIndex]= uint16_t(4);	
+		return;
+	}
 	if(dist == 1){
 		blockIDs[index] = uint16_t(1);
 		return;
 	}
-
 	else if(dist > 1 && float(dist) < threshold){
 		blockIDs[index] = uint16_t(2);
 	}
+	else{
+		blockIDs[index] = uint16_t(3);
+	}
+	
 }

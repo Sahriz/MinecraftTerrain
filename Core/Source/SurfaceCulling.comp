@@ -58,4 +58,11 @@ void main(){
             activeVoxels[listIdx] = packedID;
         }
     }
+    else if(pos.y-1 == 0){ 
+            uint listIdx = atomicAdd(activeVoxelCount, 1);
+            
+            // Using your same packing logic: 10 bits per axis
+            uint packedID = uint(pos.x) | (uint(pos.y-1) << 10) | (uint(pos.z) << 20);
+            activeVoxels[listIdx] = packedID;
+    }
 }

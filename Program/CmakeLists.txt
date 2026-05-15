@@ -2,13 +2,18 @@
 file(GLOB PROGRAM_SOURCES 
     	"Source/*.cpp" 
     	"Include/*.h" 
+	"Include/Helpers/*.h"
     	"Shaders/shader.frag" 
     	"Shaders/shader.vert"
 	"Include/Chunks/*.h"
 	"Include/Player/*.h"
 	"Include/Renderer/*.h"
-	"Source/Chunks/*.cpp"
-	"Source/Player/*.cpp"
+	"Include/World/*.h"
+	"Include/World/Player/*.h"
+	"Include/World/Chunks/*.h"
+	"Source/World/*.cpp"
+	"Source/World/Player/*.cpp"
+	"Source/World/Chunks/*.cpp"
 	"Source/Renderer/*.cpp"
 )
 

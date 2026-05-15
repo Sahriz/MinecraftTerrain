@@ -67,7 +67,7 @@ namespace Core {
 		// GPU IDs
 		GLuint vao = 0, ibo = 0;
 		GLuint packedData_SSBO = 0;
-		GLuint blockID_SSBO = 0, distanceToAirSSBO = 0, indirectBuffer = 0, densitySSBO = 0;
+		GLuint blockID_SSBO = 0, distanceToAirSSBO = 0, indirectBuffer = 0;
 		GLuint ssboVertexCounter = 0;
 		GLuint stagingVBO = 0, stagingIBO = 0, stagingIndirect = 0;
 		GLsync syncObj = nullptr;
@@ -78,6 +78,7 @@ namespace Core {
 		int indexCount = 0;
 		int maxQuards = 0;
 		bool gpuLoaded = false;
+		int poolSlotIndex = 0;
 
 		VoxelCubeMesh(const VoxelCubeMesh&) = delete;
 		VoxelCubeMesh& operator=(const VoxelCubeMesh&) = delete;
@@ -98,7 +99,6 @@ namespace Core {
 				blockID_SSBO = other.blockID_SSBO;
 				indirectBuffer = other.indirectBuffer;
 				distanceToAirSSBO = other.distanceToAirSSBO;
-				densitySSBO = other.densitySSBO;
 				ssboVertexCounter = other.ssboVertexCounter;
 				stagingVBO = other.stagingVBO;
 				stagingIBO = other.stagingIBO;
@@ -116,7 +116,6 @@ namespace Core {
 				other.blockID_SSBO = 0;
 				other.indirectBuffer = 0;
 				other.distanceToAirSSBO = 0;
-				other.densitySSBO = 0;
 				other.ssboVertexCounter = 0;
 				other.stagingVBO = 0;
 				other.stagingIBO = 0;
@@ -142,13 +141,12 @@ namespace Core {
 			if (blockID_SSBO) glDeleteBuffers(1, &blockID_SSBO);
 			if (indirectBuffer) glDeleteBuffers(1, &indirectBuffer);
 			if (distanceToAirSSBO) glDeleteBuffers(1, &distanceToAirSSBO);
-			if (densitySSBO) glDeleteBuffers(1, &densitySSBO);
 			if (stagingVBO) glDeleteBuffers(1, &stagingVBO);
 			if (stagingIBO) glDeleteBuffers(1, &stagingIBO);
 			if (syncObj) glDeleteSync(syncObj);
 
 			// Reset everything to default
-			vao = ibo = packedData_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = 0;
+			vao = ibo = packedData_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = stagingVBO = stagingIBO = 0;
 			offset = glm::vec2(0);
 			syncObj = nullptr;
 			gpuLoaded = false;

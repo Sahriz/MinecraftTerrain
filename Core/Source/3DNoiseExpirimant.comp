@@ -214,14 +214,21 @@ void main(){
     float caveThreshold = mix(bottomThreshold, topThreshold, pow(normalizedHeight, 2.0));
 
     // 4. Final Decision
-    if (density > 0.0) {
-        // Run your cave logic here to "chip away" at the density
-        if (caveNoise > caveThreshold) {
-            noiseMap[index] = uint16_t(0); // Cave air
-        } else {
-            noiseMap[index] = uint16_t(1);  // Stone
+    if(yPos > 0){  
+        if (density > 0.0) {
+            // Run your cave logic here to "chip away" at the density
+            if (caveNoise > caveThreshold) {
+                noiseMap[index] = uint16_t(0); // Cave air
+            } else {
+                noiseMap[index] = uint16_t(1);  // Stone
+            }
+        } 
+        else {
+            noiseMap[index] = uint16_t(0); // Air
         }
-    } else {
-        noiseMap[index] = uint16_t(0); // Air
     }
+    else{
+        noiseMap[index] = uint16_t(1);  // Stone
+    }
+    
 }
