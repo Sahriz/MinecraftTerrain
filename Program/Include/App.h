@@ -1,8 +1,9 @@
 #pragma once
 
 #include "Renderer/Renderer.h"
-#include "Chunks/ChunkManager.h"
-#include "Player/Player.h"
+#include "Renderer/ChunkMeshManager.h"
+#include "World/Player/Player.h"
+#include "World/Physics.h"
 #include <chrono>
 #include <thread>
 #include <mutex>

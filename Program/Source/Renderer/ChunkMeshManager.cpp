@@ -1,4 +1,4 @@
-#include "Chunks/ChunkManager.h"
+#include "Renderer/ChunkMeshManager.h"
 
 void ChunkManager::Update(const glm::vec3& position) {
 	GenerateChunk(position);
