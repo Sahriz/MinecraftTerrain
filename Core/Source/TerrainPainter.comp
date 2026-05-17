@@ -63,4 +63,7 @@ void main(){
 	else if(dist > 1 && float(dist) < threshold){
 		blockIDs[index] = uint16_t(2);
 	}
+	else{
+		blockIDs[index] = uint16_t(3);
+	}
 }

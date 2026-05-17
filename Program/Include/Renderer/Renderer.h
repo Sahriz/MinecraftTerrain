@@ -37,10 +37,10 @@ public:
     
     void InitializeInput(Player& player);
 
-    void Render(ChunkManager& chunkManager, Player& player);
+    void Render(ChunkMeshManager& chunkManager, Player& player);
 
 
-    void Cleanup(ChunkManager& chunkManager);
+    void Cleanup(ChunkMeshManager& chunkManager);
 
     GLFWwindow* GetWindow() {
         return _window;
@@ -94,7 +94,7 @@ private:
     std::string ReadFile(const std::string& filePath);
     GLuint CompileShader(GLenum type, const std::string& source);
     GLuint CreateShaderProgram(const std::string& vertexPath, const std::string& fragmentPath);
-    void DrawChunks(ChunkManager& chunkManager, Player& player);
+    void DrawChunks(ChunkMeshManager& chunkManager, Player& player);
     void ResetToStartValues();
     
 

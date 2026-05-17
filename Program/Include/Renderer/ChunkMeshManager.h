@@ -17,16 +17,22 @@ namespace std {
 	};
 }
 
-class ChunkManager {
+class ChunkMeshManager {
 public:
 
-	ChunkManager() {}
+	ChunkMeshManager() {}
 
-	ChunkManager(const ChunkManager&) = delete;
-	ChunkManager& operator=(const ChunkManager&) = delete;
+	ChunkMeshManager(const ChunkMeshManager&) = delete;
+	ChunkMeshManager& operator=(const ChunkMeshManager&) = delete;
 
-	ChunkManager(ChunkManager&&) = default;
-	ChunkManager& operator=(ChunkManager&&) = default;
+	ChunkMeshManager(ChunkMeshManager&&) = default;
+	ChunkMeshManager& operator=(ChunkMeshManager&&) = default;
+
+	bool FindMissingChunk(glm::vec3 playerPosition, glm::vec2& missingChunkCoord);
+
+	void InsertChunk(std::unique_ptr<Core::VoxelCubeMesh> mesh, glm::vec2 coord) {
+		_chunkMap[coord] = std::move(mesh);
+	}
 
 	void DestroyChunks();
 

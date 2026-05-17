@@ -2,6 +2,7 @@
 
 #include "Renderer/Renderer.h"
 #include "Renderer/ChunkMeshManager.h"
+#include "Renderer/ChunkCreator.h"
 #include "World/Player/Player.h"
 #include "World/Physics.h"
 #include <chrono>
@@ -19,9 +20,11 @@ public:
 
 private:
     Renderer _renderer;
-    ChunkManager _chunkManager;
+    ChunkMeshManager _chunkMeshManager;
+    ChunkCreator _chunkCreator;
     Player _player;
     Physics _physics;
+
 
     using Clock = std::chrono::high_resolution_clock;
     using Time = std::chrono::duration<double>;

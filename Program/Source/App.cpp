@@ -1,6 +1,6 @@
 ﻿#include "App.h"
 
-App::App() : _renderer(), _chunkManager(), _physics(_chunkManager), _player(_renderer.GetWindow(), &_physics) {
+App::App() : _renderer(), _chunkMeshManager(), _physics(_chunkMeshManager), _player(_renderer.GetWindow(), &_physics) {
 
 }
 
@@ -30,7 +30,6 @@ void App::Run() {
 				}
 				lag -= TICK_RATE;
 			}
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 		});
 
@@ -38,17 +37,24 @@ void App::Run() {
 	// Main render loop
 	while (!glfwWindowShouldClose(_renderer.GetWindow())) {
 		glm::vec3 pos = _renderer.GetCameraPosition(_player);
-		_chunkManager.Update(pos);
+		glm::vec2 missingChunkCoord;
+		for (int i = 0; i < 35; i++) {
+			if (_chunkMeshManager.FindMissingChunk(pos, missingChunkCoord)) {
+				std::unique_ptr<Core::VoxelCubeMesh> mesh = _chunkCreator.GenerateChunk(missingChunkCoord);
+				_chunkMeshManager.InsertChunk(std::move(mesh), missingChunkCoord);
+			}
+			else { break; }
+		}
+		
 
-		_renderer.Render(_chunkManager, _player);
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		_renderer.Render(_chunkMeshManager, _player);
 	}
 
 	// Cleanup
 	_running = false;
 	tickThread.join();
 	Core::Cleanup();
-	_renderer.Cleanup(_chunkManager);
+	_renderer.Cleanup(_chunkMeshManager);
 
 }
 

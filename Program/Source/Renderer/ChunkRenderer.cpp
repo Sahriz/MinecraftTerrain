@@ -1,6 +1,6 @@
 #include "Renderer/ChunkRenderer.h"
 
-void ChunkRenderer::UpdateActiveChunk(const glm::vec3& position, ChunkManager& chunkManager) {
+void ChunkRenderer::UpdateActiveChunk(const glm::vec3& position, ChunkMeshManager& chunkManager) {
 	glm::vec2 playerChunk = chunkManager.GetChunkCoordFromPosition(position);	
 	_previousFrameActiveChunkSet = _activeChunkSet;
 	_activeChunkSet.clear();

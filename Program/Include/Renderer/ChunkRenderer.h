@@ -22,7 +22,7 @@ public:
 		_viewDistance = viewDistance;
 	}
 
-	void UpdateActiveChunk(const glm::vec3& position, ChunkManager& chunkManager);
+	void UpdateActiveChunk(const glm::vec3& position, ChunkMeshManager& chunkManager);
 
 	std::unordered_set<glm::vec2>& GetActiveChunkSet() {
 		return _activeChunkSet;

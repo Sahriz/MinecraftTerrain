@@ -225,7 +225,7 @@ GLuint Renderer::CreateShaderProgram(const std::string& vertexPath, const std::s
 	return program;
 }
 
-void Renderer::DrawChunks(ChunkManager& chunkManager, Player& player) {
+void Renderer::DrawChunks(ChunkMeshManager& chunkManager, Player& player) {
 	std::unordered_map<ChunkCoord, std::unique_ptr<Core::VoxelCubeMesh>>& chunkMap = chunkManager.GetChunkMap();
 	_chunkRenderer.UpdateActiveChunk(GetCameraPosition(player), chunkManager);
 
@@ -259,7 +259,7 @@ void Renderer::ResetToStartValues() {
 
 
 
-void Renderer::Render(ChunkManager& chunkManager, Player& player) {
+void Renderer::Render(ChunkMeshManager& chunkManager, Player& player) {
 	glfwPollEvents();
 	// 1. Clear the screen
 	glClearColor(130.f / 255.f, 200.f / 255.f, 229.f / 255.f, 1.0f);
@@ -294,7 +294,7 @@ void Renderer::Render(ChunkManager& chunkManager, Player& player) {
 	glfwSwapBuffers(_window);
 }
 
-void Renderer::Cleanup(ChunkManager& chunkManager) {
+void Renderer::Cleanup(ChunkMeshManager& chunkManager) {
 	chunkManager.DestroyChunks();
 	glDeleteProgram(_shaderProgram);
 	ImGui_ImplOpenGL3_Shutdown();

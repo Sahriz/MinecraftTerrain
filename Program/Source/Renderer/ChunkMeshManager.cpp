@@ -1,11 +1,26 @@
 #include "Renderer/ChunkMeshManager.h"
 
-void ChunkManager::Update(const glm::vec3& position) {
+void ChunkMeshManager::Update(const glm::vec3& position) {
 	GenerateChunk(position);
 	//PruneChunks(position);
 }
 
-void ChunkManager::GenerateChunk(const glm::vec3& position) {
+bool ChunkMeshManager::FindMissingChunk(glm::vec3 playerPosition, glm::vec2& missingChunkCoord) {
+	glm::vec2 playerChunk = GetChunkCoordFromPosition(playerPosition);
+	for (int x = -_viewDistance; x <= _viewDistance; x++) {
+		for (int z = -_viewDistance; z <= _viewDistance; z++) {
+			if (glm::abs(x * z) > _viewDistance * _viewDistance / 1.5f) continue;
+			glm::vec2 coord = playerChunk + glm::vec2(x, z);
+			if (_chunkMap.find(coord) == _chunkMap.end()) {
+				missingChunkCoord = coord;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+void ChunkMeshManager::GenerateChunk(const glm::vec3& position) {
 	
 	glm::vec2 playerChunk = GetChunkCoordFromPosition(position);
 	bool generated = false;
@@ -16,7 +31,7 @@ void ChunkManager::GenerateChunk(const glm::vec3& position) {
 				glm::vec2 coord = playerChunk + glm::vec2(x, z);
 				//std::cout << coord.x << " " << coord.y << " " << coord.z << "\n";
 				// Generate if not yet stored
-				if (_chunkMap.find(coord) == _chunkMap.end() ) {
+				if (_chunkMap.find(coord) == _chunkMap.end()) {
 					glm::vec2 offset = coord * glm::vec2(_width, _depth);
 					//Try generating the mesh with and without GPU to see the difference in speed! The function call is the same but the end of
 					//the function call is GPU for the gpu implementtion. Please do keep in mind the noise map is still using compute shaders
@@ -33,7 +48,7 @@ void ChunkManager::GenerateChunk(const glm::vec3& position) {
 	
 }
 
-void ChunkManager::PruneChunks(const glm::vec3& position) {
+void ChunkMeshManager::PruneChunks(const glm::vec3& position) {
 	glm::vec2 playerChunk = GetChunkCoordFromPosition(position);
 	float maxDist = _viewDistance + 2.0f; // Buffer zone
 
@@ -48,10 +63,10 @@ void ChunkManager::PruneChunks(const glm::vec3& position) {
 	}
 }
 
-void ChunkManager::DestroyChunks() {
+void ChunkMeshManager::DestroyChunks() {
 	_chunkMap.clear();
 }
 
-void ChunkManager::DeleteChunk(glm::vec2 coord) {
+void ChunkMeshManager::DeleteChunk(glm::vec2 coord) {
 	_chunkMap.erase(coord);
 }
