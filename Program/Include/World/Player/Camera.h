@@ -25,8 +25,7 @@ public:
 	void HandleKeyboardInput(float deltaTime, GLFWwindow* window);
 	
 	void ProcessMouseMovement(GLFWwindow* window, double xpos, double ypos);
-
-
+	void ProcessMouseMovement(GLFWwindow* window, double xpos, double ypos);
 
 	glm::mat4 GetViewMatrix();
 

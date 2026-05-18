@@ -9,31 +9,6 @@ const glm::vec3& Camera::GetPosition() {
 	return _cameraPos;
 }
 
-void Camera::HandleKeyboardInput(float deltaTime, GLFWwindow* window) {
-	float cameraSpeed = 15.0f * deltaTime;
-	if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT)) cameraSpeed = 75.0f * deltaTime;
-	int newState = glfwGetKey(window, GLFW_KEY_E);
-	if (newState == GLFW_PRESS && _oldState == GLFW_RELEASE) {
-		UpdateCursorState(window);
-	}
-	_oldState = newState;
-	if (_cursorEnabled) {
-		return;
-	}	
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-		_cameraPos += cameraSpeed * _cameraFront;
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-		_cameraPos -= cameraSpeed * _cameraFront;
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-		_cameraPos -= glm::normalize(glm::cross(_cameraFront, _cameraUp)) * cameraSpeed;
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-		_cameraPos += glm::normalize(glm::cross(_cameraFront, _cameraUp)) * cameraSpeed;
-	if( glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-		_cameraPos += cameraSpeed * _cameraUp;
-	if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
-		_cameraPos -= cameraSpeed * _cameraUp;
-}
-
 void Camera::UpdateCursorState(GLFWwindow* window) {
 	if (_cursorEnabled) {
 		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -79,3 +54,4 @@ void Camera::ProcessMouseMovement(GLFWwindow* window, double xpos, double ypos)
 	direction.z = sin(glm::radians(_yaw)) * cos(glm::radians(_pitch));
 	_cameraFront = glm::normalize(direction);
 }
+
