@@ -67,6 +67,11 @@ private:
     glm::mat3 _normalMatrix;
     float _prevTime = 0.0f;
 
+    // FPS counter
+    float _fpsAccum = 0.0f;
+    int   _fpsFrameCount = 0;
+    float _displayedFps = 0.0f;
+
     float _scale = 0.1f;
     float _amplitude = 1.0f;
     float _frequency = 0.1f;

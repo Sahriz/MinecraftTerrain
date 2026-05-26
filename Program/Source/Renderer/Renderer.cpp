@@ -228,6 +228,12 @@ void Renderer::ResetToStartValues() {
 
 void Renderer::Render(ChunkMeshManager& chunkManager, const PlayerTransform& playerTransform) {
 	glfwPollEvents();
+
+	// Start ImGui frame
+	ImGui_ImplOpenGL3_NewFrame();
+	ImGui_ImplGlfw_NewFrame();
+	ImGui::NewFrame();
+
 	glClearColor(130.f / 255.f, 200.f / 255.f, 229.f / 255.f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -235,12 +241,21 @@ void Renderer::Render(ChunkMeshManager& chunkManager, const PlayerTransform& pla
 	float deltaTime = timeValue - _prevTime;
 	_prevTime = timeValue;
 
+	// FPS: accumulate time and frames, update display every 0.5 s
+	_fpsAccum += deltaTime;
+	_fpsFrameCount++;
+	if (_fpsAccum >= 0.5f) {
+		_displayedFps = _fpsFrameCount / _fpsAccum;
+		_fpsAccum = 0.0f;
+		_fpsFrameCount = 0;
+	}
+
 	_camera.UpdateView(playerTransform);
-	
+
 	int display_w, display_h;
 	glfwGetFramebufferSize(this->_window, &display_w, &display_h);
 	glViewport(0, 0, display_w, display_h);
-	
+
 	glUseProgram(_shaderProgram);
 
 	glUniformMatrix4fv(_viewLoc, 1, GL_FALSE, glm::value_ptr(_camera.GetViewMatrix()));
@@ -251,6 +266,27 @@ void Renderer::Render(ChunkMeshManager& chunkManager, const PlayerTransform& pla
 	glUniform1i(_textureUniformLoc, 0);
 
 	DrawChunks(chunkManager);
+
+	// FPS overlay — non-interactive, no decorations, top-left corner
+	constexpr ImGuiWindowFlags overlayFlags =
+		ImGuiWindowFlags_NoDecoration  |
+		ImGuiWindowFlags_NoInputs      |
+		ImGuiWindowFlags_NoNav         |
+		ImGuiWindowFlags_NoMove        |
+		ImGuiWindowFlags_NoSavedSettings      |
+		ImGuiWindowFlags_NoFocusOnAppearing   |
+		ImGuiWindowFlags_NoBringToFrontOnFocus|
+		ImGuiWindowFlags_AlwaysAutoResize;
+
+	ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
+	ImGui::SetNextWindowBgAlpha(0.4f);
+	ImGui::Begin("##fps", nullptr, overlayFlags);
+	ImGui::Text("FPS: %.0f", _displayedFps);
+	ImGui::End();
+
+	// Submit ImGui draw data
+	ImGui::Render();
+	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 	glfwSwapBuffers(this->_window);
 }
