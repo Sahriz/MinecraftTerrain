@@ -27,10 +27,10 @@ Inspired by Minecraft, this project pushes the boundaries of standard voxel rend
 *Mountain range transitioning into flat plains and ocean, shaped by the continentalness and erosion splines:*
 ![Mountain to ocean biome transition](GitHubFiles/MountainToOcean.png)
 
-*Cave and overhang formations cut through by 3D noise, opening onto a water surface:*
+*Cave and overhang formations cut through by 3D noise:*
 ![Cave formation with water](GitHubFiles/Cave.png)
 
-*Winding river and cave openings across flat terrain — all generated procedurally:*
+*Winding riverbed and cave openings across flat terrain — all generated procedurally:*
 ![River and cave terrain](GitHubFiles/RiverCave.png)
 
 *FPS counter overlay showing real-time rendering performance:*
