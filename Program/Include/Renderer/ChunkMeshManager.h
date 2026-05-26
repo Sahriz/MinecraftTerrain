@@ -8,14 +8,7 @@
 
 using ChunkCoord = glm::vec2;
 
-namespace std {
-	template <>
-	struct hash<glm::vec2> {
-		size_t operator()(const glm::vec2& v) const {
-			return std::hash<int>()(v.x) ^ (std::hash<int>()(v.y) << 1);
-		}
-	};
-}
+#include "Helpers/HashHelpers.h"
 
 class ChunkMeshManager {
 public:
@@ -28,25 +21,19 @@ public:
 	ChunkMeshManager(ChunkMeshManager&&) = default;
 	ChunkMeshManager& operator=(ChunkMeshManager&&) = default;
 
-	bool FindMissingChunk(glm::vec3 playerPosition, glm::vec2& missingChunkCoord);
+	void Update(const std::vector<glm::vec2>& activeChunks);
 
-	void InsertChunk(std::unique_ptr<Core::VoxelCubeMesh> mesh, glm::vec2 coord) {
-		_chunkMap[coord] = std::move(mesh);
+	void GenerateChunks(const std::vector<glm::vec2>& activeChunks);
+	// void PruneChunks(const glm::vec3& position); // Disabled as per plan
+
+	void DestroyChunks() {
+		_chunkMap.clear();
 	}
-
-	void DestroyChunks();
-
-	void Update(const glm::vec3& position);
-
-	void GenerateChunk(const glm::vec3& position);
-	void PruneChunks(const glm::vec3& position);
+	
 	glm::vec2 GetChunkCoordFromPosition(const glm::vec3& position) const {
-		float xScale = 1.0f / _width;
-		float zScale = 1.0f / _depth;
-
 		return glm::vec2(
-			std::floor(position.x / (_width )),
-			std::floor(position.z / (_depth ))
+			std::floor(position.x / _width),
+			std::floor(position.z / _depth)
 		);
 	}
 

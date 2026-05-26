@@ -3,45 +3,51 @@
 #include "World/Physics.h"
 #include "World/Player/Player.h"
 
-struct PlayerInputState {
-	// Movement intent
-	bool moveForward = false;
-	bool moveBackward = false;
-	bool moveLeft = false;
-	bool moveRight = false;
-	bool moveUp = false;
-	bool moveDown = false;
+#include "Helpers/InputState.h"
 
-	// Look intent
-	float mouseDeltaX = 0.0f;
-	float mouseDeltaY = 0.0f;
+#include <mutex>
 
-	// Optional: Add actions later (e.g., bool breakBlock = false;)
-};
-
+#include "World/Chunks/ChunkBlockManager.h"
 
 class World {
 public:
 	World(){}
 
-	void Tick(float deltaTime, GLFWwindow* window) {
-		_player.UpdateCursorState(window);
+	void Tick(float deltaTime) {
+		PlayerInputState input;
+		{
+			std::lock_guard<std::mutex> lock(_inputMutex);
+			input = _inputSnapshot;
+		}
+		_player.ApplyInput(input, deltaTime);
 		_player.UpdatePlayer(deltaTime);
+		
+		_chunkBlockManager.UpdateActiveWindow(_player.GetPosition(), _viewDistance);
 	}
 
-	glm::vec3 const GetPlayerPosition() {
-		return _player.GetPosition();
+	void SetInputSnapshot(const PlayerInputState& snapshot) {
+		std::lock_guard<std::mutex> lock(_inputMutex);
+		_inputSnapshot = snapshot;
 	}
 
-	glm::vec3 const GetPlayerFront() {
-		return _player.GetFront();
+	std::vector<glm::vec2> GetActiveChunksSnapshot() {
+		return _chunkBlockManager.GetActiveChunksSnapshot();
 	}
 
-	glm::vec3 const GetPlayerUp() {
-		return _player.GetUp();
+	PlayerTransform GetPlayerTransform() const {
+		return _player.GetTransform();
+	}
+
+	Player& GetPlayer() {
+		return _player;
 	}
 
 private:
 	Player _player;
 	Physics _physics;
+	ChunkBlockManager _chunkBlockManager;
+	PlayerInputState _inputSnapshot;
+	std::mutex _inputMutex;
+
+	int _viewDistance = 24;
 };

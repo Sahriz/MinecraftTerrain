@@ -1,43 +1,240 @@
 # MinecraftTerrain
 
-A high-performance, GPU-driven voxel terrain generation engine written in C++ and modern OpenGL (4.3+). 
+A high-performance, GPU-driven voxel terrain generation engine written in C++ and modern OpenGL (4.3+).
 
-Inspired by Minecraft, this project pushes the boundaries of standard voxel rendering by offloading almost the entire generation and rendering pipeline—including 3D noise generation, surface culling, geometry assembly, and draw calls—directly to the GPU using **Compute Shaders** and **Indirect Drawing**.
+Inspired by Minecraft, this project pushes the boundaries of standard voxel rendering by offloading almost the entire generation and rendering pipeline — including 3D noise generation, surface culling, geometry assembly, and draw calls — directly to the GPU using **Compute Shaders** and **Indirect Drawing**.
+
+<!-- 📸 IMAGE SUGGESTION: A wide flyover screenshot of the generated terrain (daytime lighting) showing multiple biomes/height variation -->
+<!-- 🎬 VIDEO SUGGESTION: A short screen recording showing real-time chunk loading as the player moves across the terrain -->
+
+---
 
 ## Key Features
 
-* **100% GPU-Accelerated Pipeline:** Terrain generation operates exclusively on the GPU. The CPU never touches vertex data.
-* **Indirect Drawing (`glDrawElementsIndirect`):** Drastically reduces CPU overhead by allowing the Compute Shader to populate draw commands. Thousands of chunks can be rendered with a single API call.
-* **Smart VRAM Management:** Uses a two-pass generation system (Atomic Counters/AppendBuffers) to tightly pack and allocate VBOs and IBOs, eliminating wasted memory padding often found in voxel engines.
-* **Procedural 3D Noise:** Utilizes Fractal Brownian Motion (FBM) with adjustable octaves, lacunarity, and persistence.
-* **Spline-Based Terrain Shaping:** Integrates 2D splines to control terrain height and drop-offs, allowing for distinct biomes and island-like structures.
-* **Greedy / Surface Culling:** Compute shaders cull hidden interior voxel faces before geometry is even generated, keeping vertex counts incredibly low.
-* **Day/Night Lighting:** Custom vertex/fragment shaders featuring Lambertian reflectance (Ambient + Diffuse) tied to a dynamic sun direction.
+- **100% GPU-Accelerated Pipeline:** Terrain generation operates exclusively on the GPU. The CPU never touches vertex data.
+- **Indirect Drawing (`glDrawElementsIndirect`):** Drastically reduces CPU overhead by allowing the Compute Shader to populate draw commands. Thousands of chunks can be rendered with a single API call.
+- **Smart VRAM Management:** Uses a two-pass generation system (Atomic Counters / AppendBuffers) to tightly pack and allocate VBOs and IBOs, eliminating wasted memory padding common in voxel engines.
+- **Procedural 3D Noise:** Fractal Brownian Motion (FBM) with adjustable octaves, lacunarity, and persistence.
+- **Spline-Based Terrain Shaping:** 2D splines control terrain height and drop-offs, enabling distinct biomes and island-like structures (continentalness + erosion splines).
+- **Surface Culling:** Compute shaders discard completely hidden interior voxels before geometry is generated, keeping vertex counts extremely low.
+- **Day/Night Lighting:** Custom vertex/fragment shaders with Lambertian reflectance (ambient + diffuse) tied to a dynamic sun direction.
+- **Multi-threaded Architecture:** Dedicated 60 Hz tick thread for deterministic world updates, decoupled from the render thread.
+
+---
+
+## Screenshots
+
+<!-- 📸 IMAGE SUGGESTION: Side-by-side comparison of terrain with/without surface culling to illustrate the optimization -->
+<!-- 📸 IMAGE SUGGESTION: Close-up of block face textures showing the sprite atlas in use -->
+<!-- 📸 IMAGE SUGGESTION: Night scene showing the ambient/diffuse lighting model -->
+<!-- 📸 IMAGE SUGGESTION: ImGui debug panel showing live chunk/noise parameters -->
+
+---
 
 ## Tech Stack
 
-* **Language:** C++17 (or newer)
-* **Graphics API:** OpenGL 4.3+ (Required for Compute Shaders and SSBOs)
-* **Window/Input:** [GLFW](https://www.glfw.org/)
-* **OpenGL Loader:** [GLAD](https://glad.dav1d.de/)
-* **Mathematics:** [GLM](https://github.com/g-truc/glm)
-* **UI:** [Dear ImGui](https://github.com/ocornut/imgui)
+| Component       | Library / API                                  |
+|-----------------|------------------------------------------------|
+| Language        | C++20                                          |
+| Graphics API    | OpenGL 4.3+ (Compute Shaders, SSBOs required)  |
+| Window / Input  | [GLFW](https://www.glfw.org/)                  |
+| OpenGL Loader   | [GLAD](https://glad.dav1d.de/)                 |
+| Mathematics     | [GLM](https://github.com/g-truc/glm)           |
+| UI              | [Dear ImGui](https://github.com/ocornut/imgui) |
 
-## How It Works (The GPU Pipeline)
+---
 
-This engine avoids the classic CPU-bottleneck of voxel games by keeping data on the Graphics Card. The chunk generation follows a strict sequential pipeline:
+## Project Structure
 
-1. **`3DNoise.comp`:** Generates the raw block IDs based on procedural noise and spline height-maps.
-2. **`SurfaceCulling.comp`:** Checks neighboring voxels. If a voxel is completely surrounded, it is discarded. Only visible "surface" voxels are added to an `AppendBuffer`.
-3. **`CountTriangles.comp`:** Reads the active surface voxels and tallies up exactly how many vertices and indices are required for the chunk.
-4. **Tight Allocation (CPU Intervention):** The CPU reads the final count and allocates a perfectly sized VBO and IBO.
-5. **`GeometryInit.comp`:** Generates the actual quad vertices, UVs, and Normals. Simultaneously, it uses `atomicAdd` to fill out the `IndirectDrawCommand` buffer.
-6. **Render Loop:** The CPU calls `glDrawElementsIndirect()`. The GPU reads its own generated commands and draws the terrain.
+```
+MinecraftTerrain/
+├── Core/                        # GPU compute pipeline (library)
+│   └── Source/
+│       ├── Core.h / Core.cpp    # Compute shader orchestration
+│       └── *.comp               # GLSL compute shaders
+├── Program/                     # Application layer
+│   ├── Include/
+│   │   ├── App.h                # Main application controller
+│   │   ├── Renderer/            # OpenGL context, camera, UI, shaders
+│   │   ├── World/               # World state, player, physics, chunks
+│   │   └── Helpers/             # Transform, InputState, hash utilities
+│   └── Source/                  # Implementations + main.cpp
+├── Vendor/                      # Third-party dependencies (GLFW, GLM, ImGui)
+├── SpriteAtlas.png              # Block texture atlas
+└── CMakeLists.txt
+```
+
+---
+
+## How It Works: The GPU Pipeline
+
+This engine avoids the classic CPU bottleneck of voxel games by keeping all geometry data on the GPU. Each chunk follows a strict sequential compute pipeline:
+
+<!-- 📸 IMAGE SUGGESTION: A pipeline diagram showing the 6 stages (3DNoise → SurfaceCulling → CountTriangles → CPU alloc → GeometryInit → Render) as connected boxes with data flows between them -->
+
+### Stage 1 — `3DNoise.comp`
+Generates a raw density/block-ID field for the chunk using Simplex FBM noise. Two spline curves shape the result:
+- **Continentalness spline** — controls the land vs. ocean distribution
+- **Erosion spline** — controls mountain vs. flat terrain height
+
+Outputs a 3D array of 16-bit block IDs (`0` = Air, `1` = Stone).
+
+### Stage 2 — `SurfaceCulling.comp`
+Checks each voxel's 6 neighbors. Completely enclosed voxels are discarded early. Only visible surface voxels are written to an **AppendBuffer** (atomic scatter write). This is the primary geometry reduction step.
+
+### Stage 3 — `CountTriangles.comp`
+Reads the active surface voxel list and tallies exactly how many vertices and indices are needed for the chunk mesh. The result is read back by the CPU via an atomic counter.
+
+### Stage 4 — Tight Allocation (CPU Intervention)
+The CPU reads the exact vertex/index count and allocates a perfectly sized VBO and IBO. No wasted padding. This is the **only** CPU involvement in the geometry pipeline.
+
+### Stage 5 — `GeometryInit.comp`
+Generates the final quad geometry:
+- Emits vertices with tightly packed data: **10+10+10 bits** for position, **3 bits** for normal, **2 bits** for UV corner, **8 bits** for texture index.
+- Simultaneously writes the `IndirectDrawCommand` buffer using `atomicAdd`.
+
+### Stage 6 — Render Loop
+The CPU calls `glDrawElementsIndirect()`. The GPU reads its own previously generated draw commands and renders the terrain. No vertex data ever passes through the CPU.
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Render Thread (variable FPS)                       │
+│  ┌─────────┐   ┌──────────────────┐   ┌──────────┐ │
+│  │  App    │──▶│ ChunkMeshManager │──▶│ Core     │ │
+│  │         │   │ (up to 5         │   │ (compute │ │
+│  │         │   │  chunks/frame)   │   │ shaders) │ │
+│  └────┬────┘   └──────────────────┘   └──────────┘ │
+│       │                                             │
+│       ▼                                             │
+│  ┌─────────┐   ┌──────────────────┐                │
+│  │Renderer │──▶│  ChunkRenderer   │                │
+│  │         │   │  (indirect draw) │                │
+│  └─────────┘   └──────────────────┘                │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│  Tick Thread (60 Hz deterministic)                  │
+│  ┌─────────┐   ┌──────────────────┐                │
+│  │  World  │──▶│  Player          │ ◀── InputState │
+│  │         │──▶│  ChunkBlockMgr   │     (mutex)    │
+│  └─────────┘   └──────────────────┘                │
+└─────────────────────────────────────────────────────┘
+```
+
+<!-- 📸 IMAGE SUGGESTION: Replace the ASCII diagram above with a clean vector architecture diagram showing the two threads, their classes, and the data flow between them -->
+
+---
+
+## Chunk Generation Details
+
+- **Chunk dimensions:** 16 × 256 × 16 (X × Y × Z)
+- **View distance:** 24 chunks (circular culling — `abs(x*z) > viewDistance² / 1.5f`)
+- **Chunks generated per frame:** Max 5 (to maintain smooth FPS during loading)
+
+### Noise Parameters (tunable via ImGui)
+
+| Parameter   | Default |
+|-------------|---------|
+| Octaves     | 5       |
+| Frequency   | 0.003   |
+| Lacunarity  | 2.0     |
+| Persistence | 0.5     |
+| Amplitude   | 1.0     |
+
+<!-- 📸 IMAGE SUGGESTION: Four-panel screenshot showing the terrain with different noise parameter settings (e.g. low vs. high frequency, low vs. high octaves) -->
+
+---
+
+## Memory Model
+
+GPU resources per chunk:
+
+| Buffer                  | Type   | Content                                      |
+|-------------------------|--------|----------------------------------------------|
+| Noise map               | SSBO   | 16-bit block IDs per voxel                   |
+| Active voxel list       | SSBO   | Packed 10-10-10 coordinates (AppendBuffer)   |
+| Packed vertex data      | SSBO → VBO | 32-bit per vertex, tight allocation      |
+| Index buffer            | SSBO → IBO | 16-bit indices, tight allocation         |
+| Distance-to-air map     | SSBO   | 16-bit depth values per voxel                |
+| Density buffer          | SSBO   | Float density field                          |
+| Indirect draw command   | SSBO   | `DrawElementsIndirectCommand` struct         |
+
+All buffers use **move semantics** on the CPU side (`VoxelCubeMesh` is move-only) to prevent accidental GPU resource duplication.
+
+---
+
+## Controls
+
+| Input           | Action                          |
+|-----------------|---------------------------------|
+| W / A / S / D   | Move forward / left / back / right |
+| Space           | Move up                         |
+| Ctrl            | Move down                       |
+| Shift           | Sprint (5× speed: 75 m/s)       |
+| Mouse           | Look around (0.1 sensitivity)   |
+| E               | Toggle cursor (UI ↔ gameplay)   |
+
+---
 
 ## Getting Started
 
 ### Prerequisites
-Ensure your graphics card drivers support **OpenGL 4.3** or higher. You will need a C++ compiler (MSVC, GCC, or Clang) and CMake (if applicable to your setup).
+
+- GPU and drivers supporting **OpenGL 4.3** or higher (Compute Shaders and SSBOs required)
+- C++ compiler with **C++20** support (MSVC 2019+, GCC 10+, Clang 12+)
+- CMake 3.x
 
 ### Building (Visual Studio)
-TODO
+
+```bash
+git clone <repo-url>
+cd MinecraftTerrain
+mkdir build && cd build
+cmake .. -G "Visual Studio 17 2022" -A x64
+```
+
+Open the generated `.sln` in Visual Studio and build the `MinecraftTerrain` target. The CMake configuration sets the debugger working directory to the repository root automatically so shaders and assets resolve correctly.
+
+<!-- TODO: Add exact CMake version requirement and any vcpkg / dependency notes -->
+
+---
+
+## Roadmap / In Progress
+
+The current `Architecture_decoupling` branch is refactoring class boundaries:
+
+- **`ShaderManager`** — Centralized shader program lifecycle (class exists, not yet implemented)
+- **`UIManager`** — ImGui panel management (class exists, not yet implemented)
+- **`WindowManager`** — GLFW window/context separation (class exists, not yet implemented)
+- **`Physics`** — Collision detection and movement constraints (class exists, not yet implemented)
+- **`ChunkCreator`** — Consolidating chunk mesh generation logic
+
+---
+
+## License
+
+MIT License
+
+Copyright (c) 2026 Jonatan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

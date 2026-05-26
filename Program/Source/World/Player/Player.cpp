@@ -5,24 +5,16 @@ void Player::UpdatePlayer(double deltaTime) {
 }
 
 
-/*Camera Related functionallity related to a specific player*/
-const glm::vec3& Player::GetCameraPosition() {
-	return _camera.GetPosition();
-}
+void Player::ApplyInput(const PlayerInputState& input, double deltaTime) {
+	float cameraSpeed = input.isSprinting ? 75.0f : 15.0f;
+	float velocity = cameraSpeed * (float)deltaTime;
 
-glm::mat4 Player::GetViewMatrix() {
-	return _camera.GetViewMatrix();
-}
+	if (input.moveForward)  Move(PlayerMovement::FORWARD, velocity);
+	if (input.moveBackward) Move(PlayerMovement::BACKWARD, velocity);
+	if (input.moveLeft)     Move(PlayerMovement::LEFT, velocity);
+	if (input.moveRight)    Move(PlayerMovement::RIGHT, velocity);
+	if (input.moveUp)       Move(PlayerMovement::UP, velocity);
+	if (input.moveDown)     Move(PlayerMovement::DOWN, velocity);
 
-void Player::UpdateCursorState(GLFWwindow* window) {
-	_camera.UpdateCursorState(window);
+	Rotate(input.mouseDeltaX, input.mouseDeltaY);
 }
-
-void Player::HandleKeyboardInput(float deltaTime, GLFWwindow* window) {
-	_camera.HandleKeyboardInput(deltaTime, window);
-}
-
-void Player::ProcessMouseMovement(GLFWwindow* window, double xpos, double ypos) {
-	_camera.ProcessMouseMovement(window, xpos, ypos);
-}
-

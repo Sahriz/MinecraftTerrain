@@ -23,7 +23,9 @@
 #include "Renderer/ChunkMeshManager.h"
 #include "World/Player/Player.h"
 #include "Renderer/ChunkRenderer.h"
+#include "Renderer/Camera.h"
 #include "Core.h"
+
 
 
 
@@ -35,9 +37,9 @@ class Renderer {
 public:
     Renderer();
     
-    void InitializeInput(Player& player);
+    void InitializeInput(void* appPointer);
 
-    void Render(ChunkMeshManager& chunkManager, Player& player);
+    void Render(ChunkMeshManager& chunkManager, const PlayerTransform& playerTransform);
 
 
     void Cleanup(ChunkMeshManager& chunkManager);
@@ -46,12 +48,13 @@ public:
         return _window;
     }
 
-    const glm::vec3& GetCameraPosition(Player& player) {
-        return player.GetCameraPosition();
+    const glm::vec3& GetCameraPosition() {
+        return _camera.GetPosition();
     }
 
     
 private:
+    Camera _camera;
     int _width = 16;
     int _height = 256;
     int _depth = 16;
@@ -94,7 +97,7 @@ private:
     std::string ReadFile(const std::string& filePath);
     GLuint CompileShader(GLenum type, const std::string& source);
     GLuint CreateShaderProgram(const std::string& vertexPath, const std::string& fragmentPath);
-    void DrawChunks(ChunkMeshManager& chunkManager, Player& player);
+    void DrawChunks(ChunkMeshManager& chunkManager);
     void ResetToStartValues();
     
 

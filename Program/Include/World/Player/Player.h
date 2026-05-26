@@ -1,28 +1,14 @@
 #pragma once
 #include "Inventory.h"
-#include "Camera.h"
 #include "Movement.h"
 #include "iostream"
+#include "Helpers/Transform.h"
 
 enum class PlayerMovement {
 	FORWARD, BACKWARD, LEFT, RIGHT, UP, DOWN
 };
 
-struct PlayerInputState {
-	// Movement intent
-	bool moveForward = false;
-	bool moveBackward = false;
-	bool moveLeft = false;
-	bool moveRight = false;
-	bool moveUp = false;
-	bool moveDown = false;
-
-	// Look intent
-	float mouseDeltaX = 0.0f;
-	float mouseDeltaY = 0.0f;
-
-	// Optional: Add actions later (e.g., bool breakBlock = false;)
-};
+#include "Helpers/InputState.h"
 
 class Player {
 public:
@@ -31,17 +17,11 @@ public:
 	/*Player Game loop using tickSystem*/
 	void UpdatePlayer(double deltaTime);
 
+	void ApplyInput(const PlayerInputState& input, double deltaTime);
 
-	/*Camera Related functionallity related to a specific player*/
-	const glm::vec3& GetCameraPosition();
-
-	glm::mat4 GetViewMatrix();
-
-	void UpdateCursorState(GLFWwindow* window);
-
-	void HandleKeyboardInput(float deltaTime, GLFWwindow* window);
-
-	void ProcessMouseMovement(GLFWwindow* window, double xpos, double ypos);
+	PlayerTransform GetTransform() const {
+		return { _position, _front, _up, _right };
+	}
 
 	void Move(PlayerMovement direction, float velocity) {
 		if (direction == PlayerMovement::FORWARD)  _position += _front * velocity;
