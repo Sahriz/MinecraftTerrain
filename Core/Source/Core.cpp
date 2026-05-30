@@ -58,20 +58,27 @@ namespace Core
 			return program;
 		}
 	}
-	
-		GLuint _3DNoiseMapPipelineComputeShader = 0;
+		GLuint _lowResNoiseComputeShader = 0;
+		GLuint _noiseInterpolationComputeShader = 0;
 		GLuint _distanceToAirComputeShader = 0;
 		GLuint _voxelCubesGeometryInitComputeShader = 0;
 		GLuint _voxelCubesTriangleCounterComputeShader = 0;
 		GLuint _voxelTerrainPainterComputeShader = 0;
 		GLuint _voxelCubesSurfaceCullingComputeShader = 0;
 
-		GLint _noiseWidthLoc = 0;
-		GLint _noiseHeightLoc = 0;
-		GLint _noiseDepthLoc = 0;
-		GLint _noiseOffsetLoc = 0;
-		GLint _noiseFrequencyLoc = 0;
-		GLint _noiseDropoffLoc = 0;
+		GLint _lowResNoise_widthLoc = 0;
+		GLint _lowResNoise_heightLoc = 0;
+		GLint _lowResNoise_depthLoc = 0;
+		GLint _lowResNoise_offsetLoc = 0;
+		GLint _lowResNoise_frequencyLoc = 0;
+		GLint _lowResNoise_dropoffLoc = 0;
+
+		GLint _noiseInterp_widthLoc = 0;
+		GLint _noiseInterp_heightLoc = 0;
+		GLint _noiseInterp_depthLoc = 0;
+		GLint _noiseInterp_offsetLoc = 0;
+		GLint _noiseInterp_frequencyLoc = 0;
+		GLint _noiseInterp_dropoffLoc = 0;
 
 		GLint _distanceToAirWidthLoc = 0;
 		GLint _distanceToAirHeightLoc = 0;
@@ -91,7 +98,7 @@ namespace Core
 		GLint _geomOffsetLoc = 0;
 		GLint _geomColumnSizeLoc = 0;
 		GLint _geomRowSizeLoc = 0;
-		
+
 
 		void Init() {
 			InitShaders();
@@ -99,7 +106,8 @@ namespace Core
 		}
 
 		void InitShaders() {
-			_3DNoiseMapPipelineComputeShader = CreateComputeShaderProgram("Core/Source/3DNoiseExpirimant.comp");
+			_lowResNoiseComputeShader        = CreateComputeShaderProgram("Core/Source/3DNoiseExpirimant.comp");
+			_noiseInterpolationComputeShader = CreateComputeShaderProgram("Core/Source/InterpolateNoise.comp");
 			_distanceToAirComputeShader = CreateComputeShaderProgram("Core/Source/distanceToAir.comp");
 			_voxelCubesGeometryInitComputeShader = CreateComputeShaderProgram("Core/Source/GeometryInit.comp");
 			_voxelCubesTriangleCounterComputeShader = CreateComputeShaderProgram("Core/Source/CountTriangles.comp");
@@ -109,12 +117,19 @@ namespace Core
 
 		void InitUniformLocations() {
 
-			_noiseWidthLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "width");
-			_noiseHeightLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "height");
-			_noiseDepthLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "depth");
-			_noiseOffsetLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "offset");
-			_noiseFrequencyLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "frequency");
-			_noiseDropoffLoc = glGetUniformLocation(_3DNoiseMapPipelineComputeShader, "useHeightDropoff");
+			_lowResNoise_widthLoc     = glGetUniformLocation(_lowResNoiseComputeShader, "width");
+			_lowResNoise_heightLoc    = glGetUniformLocation(_lowResNoiseComputeShader, "height");
+			_lowResNoise_depthLoc     = glGetUniformLocation(_lowResNoiseComputeShader, "depth");
+			_lowResNoise_offsetLoc    = glGetUniformLocation(_lowResNoiseComputeShader, "offset");
+			_lowResNoise_frequencyLoc = glGetUniformLocation(_lowResNoiseComputeShader, "frequency");
+			_lowResNoise_dropoffLoc   = glGetUniformLocation(_lowResNoiseComputeShader, "useHeightDropoff");
+
+			_noiseInterp_widthLoc     = glGetUniformLocation(_noiseInterpolationComputeShader, "width");
+			_noiseInterp_heightLoc    = glGetUniformLocation(_noiseInterpolationComputeShader, "height");
+			_noiseInterp_depthLoc     = glGetUniformLocation(_noiseInterpolationComputeShader, "depth");
+			_noiseInterp_offsetLoc    = glGetUniformLocation(_noiseInterpolationComputeShader, "offset");
+			_noiseInterp_frequencyLoc = glGetUniformLocation(_noiseInterpolationComputeShader, "frequency");
+			_noiseInterp_dropoffLoc   = glGetUniformLocation(_noiseInterpolationComputeShader, "useHeightDropoff");
 
 			_distanceToAirWidthLoc = glGetUniformLocation(_distanceToAirComputeShader, "width");
 			_distanceToAirHeightLoc = glGetUniformLocation(_distanceToAirComputeShader, "height");
@@ -137,7 +152,8 @@ namespace Core
 		}
 
 		void Cleanup() {
-			glDeleteProgram(_3DNoiseMapPipelineComputeShader);
+			glDeleteProgram(_lowResNoiseComputeShader);
+			glDeleteProgram(_noiseInterpolationComputeShader);
 			glDeleteProgram(_voxelCubesGeometryInitComputeShader);
 			glDeleteProgram(_voxelCubesTriangleCounterComputeShader);
 			glDeleteProgram(_voxelTerrainPainterComputeShader);
@@ -158,6 +174,12 @@ namespace Core
 			glGenBuffers(1, &mesh.stagingIndirect);
 			glBindBuffer(GL_COPY_READ_BUFFER, mesh.stagingIndirect);
 			glBufferData(GL_COPY_READ_BUFFER, 16, nullptr, GL_STREAM_READ);
+
+			// Low-res grid: (paddedDim / 2 + 1) per axis, storing float density values.
+			int lowResVoxels = (width / 2 + 1) * (height / 2 + 1) * (depth / 2 + 1);
+			glGenBuffers(1, &mesh.lowResDensity_SSBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.lowResDensity_SSBO);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, lowResVoxels * sizeof(float), NULL, GL_DYNAMIC_COPY);
 
 			glGenBuffers(1, &mesh.blockID_SSBO);
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.blockID_SSBO);
@@ -201,18 +223,39 @@ namespace Core
 		}
 
 
-		void CreateFlat3DNoiseMapPipeLine(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff) {
+		void CreateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff) {
 
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.lowResDensity_SSBO);
 
-			glUseProgram(_3DNoiseMapPipelineComputeShader);
+			glUseProgram(_lowResNoiseComputeShader);
 
-			glUniform1i(_noiseWidthLoc, width);
-			glUniform1i(_noiseHeightLoc, height);
-			glUniform1i(_noiseDepthLoc, depth);
-			glUniform3fv(_noiseOffsetLoc, 1, &offset[0]);
-			glUniform1f(_noiseFrequencyLoc, frequency);
-			glUniform1i(_noiseDropoffLoc, useDropoff);
+			glUniform1i(_lowResNoise_widthLoc,     width);
+			glUniform1i(_lowResNoise_heightLoc,    height);
+			glUniform1i(_lowResNoise_depthLoc,     depth);
+			glUniform3fv(_lowResNoise_offsetLoc, 1, &offset[0]);
+			glUniform1f(_lowResNoise_frequencyLoc, frequency);
+			glUniform1i(_lowResNoise_dropoffLoc,   useDropoff);
+
+			glDispatchCompute(
+				(GLuint)ceil(width / 8.0f),
+				(GLuint)ceil(height / 8.0f),
+				(GLuint)ceil(depth / 8.0f)
+			);
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+		}
+
+		void InterpolateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff) {
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.lowResDensity_SSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh.blockID_SSBO);
+
+			glUseProgram(_noiseInterpolationComputeShader);
+
+			glUniform1i(_noiseInterp_widthLoc,  width);
+			glUniform1i(_noiseInterp_heightLoc, height);
+			glUniform1i(_noiseInterp_depthLoc,  depth);
+			glUniform3fv(_noiseInterp_offsetLoc, 1, &offset[0]);
+			glUniform1f(_noiseInterp_frequencyLoc, frequency);
+			glUniform1i(_noiseInterp_dropoffLoc,   useDropoff);
 
 			glDispatchCompute(
 				(GLuint)ceil(width / 8.0f),
@@ -226,7 +269,7 @@ namespace Core
 
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh.distanceToAirSSBO);
-			
+
 
 			glUseProgram(_distanceToAirComputeShader);
 
@@ -241,6 +284,7 @@ namespace Core
 			);
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		}
+
 		void TerrainPaint(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth) {
 			int maxActiveVoxels = width * height * depth;
 
@@ -311,7 +355,7 @@ namespace Core
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ab.getDataSSBO());
 
 			glUseProgram(_voxelCubesTriangleCounterComputeShader);
-		
+
 			glUniform1i(_countWidthLoc, width);
 			glUniform1i(_countHeightLoc, heigth);
 			glUniform1i(_countDepthLoc, depth);
@@ -321,10 +365,10 @@ namespace Core
 			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &activeCount);
 			// 2. Only dispatch if there is actually something to draw
 			if (activeCount > 0) {
-				// We use a 1D dispatch. 
+				// We use a 1D dispatch.
 				// Since local_size_x = 64, we divide the total count by 64.
 				GLuint numGroups = (activeCount + 63) / 64;
-			
+
 				glDispatchCompute(numGroups, 1, 1);
 			}
 			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
@@ -368,7 +412,6 @@ namespace Core
 			glUniform1f(_geomRowSizeLoc, 16);
 
 			GLuint numGroups = (activeCount + 63) / 64;
-			//std::cout << activeCount << std::endl;
 			glDispatchCompute(numGroups, 1, 1);
 
 			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
@@ -381,15 +424,28 @@ namespace Core
 			std::unique_ptr<VoxelCubeMesh> cubeMeshData = std::make_unique<VoxelCubeMesh>();
 			cubeMeshData->gpuLoaded = true;
 			cubeMeshData->offset = offset;
-			int paddedWidth = width + 2;
+
+			int paddedWidth  = width  + 2;
 			int paddedHeight = height + 2;
-			int paddedDepth = depth + 2;
+			int paddedDepth  = depth  + 2;
+
+			// Low-res grid dimensions: one extra sample per axis beyond the half-res count.
+			// Samples land at world-aligned odd padded positions (-1, 1, 3, ..., paddedDim-1),
+			// which are shared exactly between adjacent chunks at both seam edges.
+			int lowResWidth  = paddedWidth  / 2 + 1;  // 10 for paddedWidth=18
+			int lowResHeight = paddedHeight / 2 + 1;  // 130 for paddedHeight=258
+			int lowResDepth  = paddedDepth  / 2 + 1;  // 10 for paddedDepth=18
 
 			glm::vec3 offset3D = glm::vec3(offset.x, 0, offset.y);
 
+			// Shift offset by -1 so low-res index 0 maps to padded position -1 in world space.
+			glm::vec3 lowResOffset = offset3D - glm::vec3(1.0f);
+
 			InitializeVoxelCubeMesh(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
 
-			CreateFlat3DNoiseMapPipeLine(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth, offset3D, true, frequency, true);
+			CreateNoise(*cubeMeshData, lowResWidth, lowResHeight, lowResDepth, lowResOffset, true, frequency, true);
+
+			InterpolateNoise(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth, offset3D, true, frequency, true);
 
 			AppendBuffer ab(paddedWidth, paddedHeight, paddedDepth);
 
@@ -410,6 +466,7 @@ namespace Core
 			glDeleteBuffers(1, &cubeMeshData->ssboVertexCounter);
 			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);
 			glDeleteBuffers(1, &cubeMeshData->blockID_SSBO);
+			glDeleteBuffers(1, &cubeMeshData->densitySSBO);
 			cubeMeshData->blockID_SSBO = 0;
 
 			return cubeMeshData;

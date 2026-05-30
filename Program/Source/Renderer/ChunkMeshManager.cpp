@@ -15,7 +15,7 @@ void ChunkMeshManager::GenerateChunks(const std::vector<glm::vec2>& activeChunks
 			_chunkMap[coord] = std::move(voxelData);
 			
 			numOfGen++;
-			if (numOfGen >= 5) break; // Limit generation per frame to maintain FPS
+			if (numOfGen >= 15) break; // Limit generation per frame to maintain FPS
 		}
 	}
 }

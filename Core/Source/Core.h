@@ -35,8 +35,8 @@ namespace Core {
 			if (dataSSBO) glDeleteBuffers(1, &dataSSBO);
 		}
 
-		AppendBuffer(const AppendBuffer&) = delete; // No copying
-		AppendBuffer& operator=(const AppendBuffer&) = delete; // No assignment
+		AppendBuffer(const AppendBuffer&) = delete;
+		AppendBuffer& operator=(const AppendBuffer&) = delete;
 
 		AppendBuffer(AppendBuffer&& other) noexcept : counterSSBO(other.counterSSBO), dataSSBO(other.dataSSBO), maxCapacity(other.maxCapacity) {
 			other.counterSSBO = 0;
@@ -53,13 +53,14 @@ namespace Core {
 		int maxCapacity;
 	};
 
-	
+
 	struct VoxelCubeCombinedVertex {
 		glm::vec4 position; // 16 bytes
 		glm::vec4 normal;   // 16 bytes
 		glm::vec2 uv;       // 8 bytes
 		float padding[2];   // 8 bytes (Essential to bring the total to 48)
 	};
+
 	class VoxelCubeMesh {
 	public:
 		VoxelCubeMesh() = default;
@@ -67,7 +68,9 @@ namespace Core {
 		// GPU IDs
 		GLuint vao = 0, ibo = 0;
 		GLuint packedData_SSBO = 0;
-		GLuint blockID_SSBO = 0, distanceToAirSSBO = 0, indirectBuffer = 0, densitySSBO = 0;
+		// lowResDensity_SSBO holds the stride-2 float density values written by the noise pass.
+		// blockID_SSBO holds the full-res uint16_t block IDs written by the interpolation pass.
+		GLuint lowResDensity_SSBO = 0, blockID_SSBO = 0, distanceToAirSSBO = 0, indirectBuffer = 0, densitySSBO = 0;
 		GLuint ssboVertexCounter = 0;
 		GLuint stagingVBO = 0, stagingIBO = 0, stagingIndirect = 0;
 		GLsync syncObj = nullptr;
@@ -88,13 +91,12 @@ namespace Core {
 
 		VoxelCubeMesh& operator=(VoxelCubeMesh&& other) noexcept {
 			if (this != &other) {
-				// Important: Clean up OUR existing resources before taking new ones
 				Release();
 
-				// Steal the values
 				vao = other.vao;
 				ibo = other.ibo;
 				packedData_SSBO = other.packedData_SSBO;
+				lowResDensity_SSBO = other.lowResDensity_SSBO;
 				blockID_SSBO = other.blockID_SSBO;
 				indirectBuffer = other.indirectBuffer;
 				distanceToAirSSBO = other.distanceToAirSSBO;
@@ -113,6 +115,7 @@ namespace Core {
 				other.vao = 0;
 				other.ibo = 0;
 				other.packedData_SSBO = 0;
+				other.lowResDensity_SSBO = 0;
 				other.blockID_SSBO = 0;
 				other.indirectBuffer = 0;
 				other.distanceToAirSSBO = 0;
@@ -130,7 +133,6 @@ namespace Core {
 			return *this;
 		}
 
-		// 4. DESTRUCTOR
 		~VoxelCubeMesh() {
 			Release();
 		}
@@ -139,6 +141,7 @@ namespace Core {
 			if (vao) glDeleteVertexArrays(1, &vao);
 			if (ibo) glDeleteBuffers(1, &ibo);
 			if (packedData_SSBO) glDeleteBuffers(1, &packedData_SSBO);
+			if (lowResDensity_SSBO) glDeleteBuffers(1, &lowResDensity_SSBO);
 			if (blockID_SSBO) glDeleteBuffers(1, &blockID_SSBO);
 			if (indirectBuffer) glDeleteBuffers(1, &indirectBuffer);
 			if (distanceToAirSSBO) glDeleteBuffers(1, &distanceToAirSSBO);
@@ -147,27 +150,37 @@ namespace Core {
 			if (stagingIBO) glDeleteBuffers(1, &stagingIBO);
 			if (syncObj) glDeleteSync(syncObj);
 
-			// Reset everything to default
-			vao = ibo = packedData_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = 0;
+			vao = ibo = packedData_SSBO = lowResDensity_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = 0;
 			offset = glm::vec2(0);
 			syncObj = nullptr;
 			gpuLoaded = false;
 		}
 	};
-	
-	extern GLuint _3DNoiseMapPipelineComputeShader;
+
+	// Shader programs
+	extern GLuint _lowResNoiseComputeShader;        // Generates stride-2 float density into lowResDensity_SSBO
+	extern GLuint _noiseInterpolationComputeShader; // Trilinearly interpolates density into full-res blockID_SSBO
 	extern GLuint _distanceToAirComputeShader;
 	extern GLuint _voxelCubesGeometryInitComputeShader;
 	extern GLuint _voxelCubesTriangleCounterComputeShader;
 	extern GLuint _voxelTerrainPainterComputeShader;
 	extern GLuint _voxelCubesSurfaceCullingComputeShader;
 
-	extern GLint _noiseWidthLoc;
-	extern GLint _noiseHeightLoc;
-	extern GLint _noiseDepthLoc;
-	extern GLint _noiseOffsetLoc;
-	extern GLint _noiseFrequencyLoc;
-	extern GLint _noiseDropoffLoc;
+	// Low-res noise shader uniform locations
+	extern GLint _lowResNoise_widthLoc;
+	extern GLint _lowResNoise_heightLoc;
+	extern GLint _lowResNoise_depthLoc;
+	extern GLint _lowResNoise_offsetLoc;
+	extern GLint _lowResNoise_frequencyLoc;
+	extern GLint _lowResNoise_dropoffLoc;
+
+	// Noise interpolation shader uniform locations
+	extern GLint _noiseInterp_widthLoc;
+	extern GLint _noiseInterp_heightLoc;
+	extern GLint _noiseInterp_depthLoc;
+	extern GLint _noiseInterp_offsetLoc;
+	extern GLint _noiseInterp_frequencyLoc;
+	extern GLint _noiseInterp_dropoffLoc;
 
 	extern GLint _distanceToAirWidthLoc;
 	extern GLint _distanceToAirHeightLoc;
@@ -195,7 +208,12 @@ namespace Core {
 
 	void InitializeVoxelCubeMesh(VoxelCubeMesh& mesh, int width, int height, int depth);
 	void InitializeVoxelCubeMeshSize(VoxelCubeMesh& mesh, int size);
-	void CreateFlat3DNoiseMapPipeLine(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff);
+	// CreateNoise dispatches the low-res noise shader over (width, height, depth) low-res samples.
+	// offset must already be pre-shifted by -1 so sample index 0 aligns to padded position -1.
+	void CreateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff);
+	// InterpolateNoise reads the low-res density and writes full-res block IDs.
+	// width/height/depth are the full padded dimensions (e.g. 18x258x18).
+	void InterpolateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff);
 	void SampleDistanceToAir(VoxelCubeMesh& mesh, int width, int height, int depth);
 	void TerrainPaint(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth);
 
@@ -204,5 +222,5 @@ namespace Core {
 	void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp);
 	std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int heigth, int depth, glm::vec2 offset, bool CleanUp, const float amplitude = 1.0f, const float frequency = 1.0f, const float persistance = 0.5f, const float lacunarity = 2.0f, const int octaves = 5, const bool useDropoff = true);
 
-	
+
 }

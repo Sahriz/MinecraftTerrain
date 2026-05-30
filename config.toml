@@ -1,0 +1,20 @@
+[World]
+view_distance = 24
+tick_rate = 60
+
+[chunk]
+width = 16
+height = 256
+depth = 16
+
+[player]
+speed = 15.0
+sprint_speed = 75.0
+sensitivity = 0.1
+
+[noise]
+octaves = 5
+frequency = 0.003
+lacunarity = 2.0
+persistance = 0.5
+amplitude = 1.0

@@ -1,0 +1,82 @@
+#version 430 core
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+// Low-res density values written by the noise generation pass (float, stride-2 world samples)
+layout(std430, binding = 0) buffer noiseBuffer {
+    float noiseMap[];
+};
+
+// Full-res block IDs written by this interpolation pass
+layout(std430, binding = 1) buffer blockIDBuffer {
+    uint16_t blockIDs[];
+};
+
+uniform int width;
+uniform int height;
+uniform int depth;
+
+void main() {
+    uint xPos = gl_GlobalInvocationID.x;
+    uint yPos = gl_GlobalInvocationID.y;
+    uint zPos = gl_GlobalInvocationID.z;
+
+    if (xPos >= uint(width) || yPos >= uint(height) || zPos >= uint(depth)) return;
+
+    // Low-res grid has one extra sample per dimension beyond the half-res count,
+    // placed at world-aligned positions so chunk boundary samples are exact and shared:
+    //   low-res index i  <->  padded position (2*i - 1)
+    //   samples land at padded positions: -1, 1, 3, ..., (paddedDim - 1)
+    int lowW = width  / 2 + 1;
+    int lowH = height / 2 + 1;
+    int lowD = depth  / 2 + 1;
+
+    // Map full-res padded index to low-res fractional index:
+    //   padded 0  -> low 0.5  (interpolated)
+    //   padded 1  -> low 1.0  (exact sample, chunk edge -- consistent with neighbours)
+    //   padded 16 -> low 8.5  (interpolated)
+    //   padded 17 -> low 9.0  (exact sample, chunk edge -- consistent with neighbours)
+    float lx = (float(xPos) + 1.0) / 2.0;
+    float ly = (float(yPos) + 1.0) / 2.0;
+    float lz = (float(zPos) + 1.0) / 2.0;
+
+    int x0 = int(lx);
+    int y0 = int(ly);
+    int z0 = int(lz);
+    int x1 = min(x0 + 1, lowW - 1);
+    int y1 = min(y0 + 1, lowH - 1);
+    int z1 = min(z0 + 1, lowD - 1);
+
+    float fx = lx - float(x0);
+    float fy = ly - float(y0);
+    float fz = lz - float(z0);
+
+    // Fetch the 8 surrounding low-res corners
+    float c000 = noiseMap[x0 + y0 * lowW + z0 * lowW * lowH];
+    float c100 = noiseMap[x1 + y0 * lowW + z0 * lowW * lowH];
+    float c010 = noiseMap[x0 + y1 * lowW + z0 * lowW * lowH];
+    float c110 = noiseMap[x1 + y1 * lowW + z0 * lowW * lowH];
+    float c001 = noiseMap[x0 + y0 * lowW + z1 * lowW * lowH];
+    float c101 = noiseMap[x1 + y0 * lowW + z1 * lowW * lowH];
+    float c011 = noiseMap[x0 + y1 * lowW + z1 * lowW * lowH];
+    float c111 = noiseMap[x1 + y1 * lowW + z1 * lowW * lowH];
+
+    // Trilinear interpolation
+    float c00 = mix(c000, c100, fx);
+    float c10 = mix(c010, c110, fx);
+    float c01 = mix(c001, c101, fx);
+    float c11 = mix(c011, c111, fx);
+    float c0  = mix(c00, c10, fy);
+    float c1  = mix(c01, c11, fy);
+    float density = mix(c0, c1, fz);
+
+    uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
+
+    if (density > 0.0) {
+        blockIDs[index] = uint16_t(1);
+    } else {
+        blockIDs[index] = uint16_t(0);
+    }
+}

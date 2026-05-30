@@ -1,13 +1,9 @@
 #version 430 core
 
-//Enable the 16-bit storage extension
-#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
-
-
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-layout(std430, binding = 0) buffer noiseBuffer{
-	uint16_t noiseMap[];
+layout(std430, binding = 0) buffer noiseBuffer {
+    float noiseMap[];
 };
 
 uniform int width;
@@ -36,33 +32,33 @@ float snoise(vec3 p) {
 
 	vec3 s = floor(p + dot(p, vec3(F3)));
 	vec3 x = p - s + dot(s, vec3(G3));
-	 
+
 	vec3 e = step(vec3(0.0), x - x.yzx);
 	vec3 i1 = e*(1.0 - e.zxy);
 	vec3 i2 = 1.0 - e.zxy*(1.0 - e);
-	 	
+
 	vec3 x1 = x - i1 + G3;
 	vec3 x2 = x - i2 + 2.0*G3;
 	vec3 x3 = x - 1.0 + 3.0*G3;
-	 
+
 	vec4 w, d;
-	 
+
 	w.x = dot(x, x);
 	w.y = dot(x1, x1);
 	w.z = dot(x2, x2);
 	w.w = dot(x3, x3);
-	 
+
 	w = max(0.6 - w, 0.0);
-	 
+
 	d.x = dot(random3(s), x);
 	d.y = dot(random3(s + i1), x1);
 	d.z = dot(random3(s + i2), x2);
 	d.w = dot(random3(s + 1.0), x3);
-	 
+
 	w *= w;
 	w *= w;
 	d *= w;
-	 
+
 	return dot(d, vec4(52.0));
 }
 
@@ -79,23 +75,19 @@ vec3 permute(vec3 x) {
 }
 
 float snoise2D(vec2 v) {
-    const vec4 C = vec4(0.211324865405187,  // (3.0-sqrt(3.0))/6.0
-                        0.366025403784439,  // 0.5*(sqrt(3.0)-1.0)
-                       -0.577350269189626,  // -1.0 + 2.0 * C.x
-                        0.024390243902439); // 1.0 / 41.0
-                        
-    // First corner
+    const vec4 C = vec4(0.211324865405187,
+                        0.366025403784439,
+                       -0.577350269189626,
+                        0.024390243902439);
     vec2 i  = floor(v + dot(v, C.yy));
     vec2 x0 = v - i + dot(i, C.xx);
 
-    // Other corners
     vec2 i1;
     i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
     vec4 x12 = x0.xyxy + C.xxzz;
     x12.xy -= i1;
 
-    // Permutations
-    i = mod289(i); 
+    i = mod289(i);
     vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
            + i.x + vec3(0.0, i1.x, 1.0));
 
@@ -103,7 +95,6 @@ float snoise2D(vec2 v) {
     m = m * m;
     m = m * m;
 
-    // Gradients
     vec3 x = 2.0 * fract(p * C.www) - 1.0;
     vec3 h = abs(x) - 0.5;
     vec3 ox = floor(x + 0.5);
@@ -111,7 +102,6 @@ float snoise2D(vec2 v) {
 
     m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
 
-    // Compute final noise value
     vec3 g;
     g.x  = a0.x  * x0.x  + h.x  * x0.y;
     g.yz = a0.yz * x12.xz + h.yz * x12.yw;
@@ -129,99 +119,86 @@ void main(){
 	uint xPos = gl_GlobalInvocationID.x;
 	uint yPos = gl_GlobalInvocationID.y;
 	uint zPos = gl_GlobalInvocationID.z;
-	
-	if(xPos >= uint(width) || yPos >= uint(height) || zPos >= uint(depth)) return;
-	
-	vec2 worldPos2D = vec2((int(xPos) + offset.x), (int(zPos) + offset.z));
-	
-	vec3 position = vec3((int(xPos) + offset.x)/float(width), (int(yPos) + offset.y)/float(height),(int(zPos) + offset.z)/float(depth));
 
-    float continental = snoise2D(worldPos2D * 0.0008); // Extremely low frequency
-    continental = 0.63*smoothstep(-0.2, 0.5, continental); // Push it towards 0 or 1	
+	if(xPos >= uint(width) || yPos >= uint(height) || zPos >= uint(depth)) return;
+
+	// Each low-res sample covers 2 full-res voxels (stride = 2).
+	// offset is pre-shifted by -1 so index 0 aligns to padded position -1 in world space,
+	// ensuring sample points land on odd padded positions (1, 3, ..., 17) which are
+	// shared consistently between adjacent chunks.
+	float worldX = float(int(xPos) * 2) + offset.x;
+	float worldY = float(int(yPos) * 2) + offset.y;
+	float worldZ = float(int(zPos) * 2) + offset.z;
+
+	vec2 worldPos2D = vec2(worldX, worldZ);
+
+	// Recover the effective full-res padded height for terrain scale calculations.
+	// lowResHeight = paddedHeight / 2 + 1, so paddedHeight = (lowResHeight - 1) * 2.
+	int effectiveHeight = (height - 1) * 2;
+
+    float continental = snoise2D(worldPos2D * 0.0008);
+    continental = 0.63*smoothstep(-0.2, 0.5, continental);
 
     float erosion = snoise2D(worldPos2D*0.002);
     erosion = -40*max(smoothstep(-0.15, 0.05, erosion), smoothstep(0.05, -0.15, erosion));
 
     float continentalBackwards = max(0.0, 0.63-continental);
-    
+
     float mountainDetail = 0.0;
     float f = 0.002;
     float a = 1.0;
     for(int i = 0; i < 5; i++) {
-        // Use "Ridged Noise" for mountains: 1.0 - abs(noise)
-        // This creates sharp peaks instead of round hills
         float n = snoise2D(worldPos2D * f);
-        mountainDetail += (1.0 - abs(n)) * a; 
+        mountainDetail += (1.0 - abs(n)) * a;
         f *= 2.0;
         a *= 0.5;
     }
 
 	float surfaceHeight = 0.0;
-    float f2D = 0.0005; // Zoomed out for large rolling hills
+    float f2D = 0.0005;
     float a2D = 1.0;
     float totalAmplitude = 0.0;
 
 	for(int i = 0; i < 4; i++) {
-        // We use worldPos2D * frequency directly.
         surfaceHeight += a2D * snoise2D(worldPos2D * f2D);
         totalAmplitude += a2D;
         f2D *= 2.0;
         a2D *= 0.5;
     }
 
-	// Normalize height map from [-1, 1] to roughly [0, 1]
     surfaceHeight = (surfaceHeight / totalAmplitude) * 0.5 + 0.5;
 
-    float baseHeight = 0.3 * float(height);
-    float heightVariation = float(height) * 0.4;
-    float erosionVariation = erosion * (max(0.0,continentalBackwards-0.0));
-	float finalTerrainHeight = (height * 0.2) + (mountainDetail * (height * 0.6) * continental) - erosionVariation;
+    float erosionVariation = erosion * (max(0.0, continentalBackwards - 0.0));
+	float finalTerrainHeight = (effectiveHeight * 0.2) + (mountainDetail * (effectiveHeight * 0.6) * continental) - erosionVariation;
 
-    float density = finalTerrainHeight - float(yPos);
+    float density = finalTerrainHeight - worldY;
 
-    // 2. Add 3D "Overhang" Noise
-    vec3 pos3D = vec3(xPos, yPos, zPos) + offset;
-    float overhangNoise = snoise(pos3D * 0.02) * 20.0; // Scale/Frequency determine the "chunkiness"
-
+    float overhangNoise = snoise(vec3(worldX, worldY, worldZ) * 0.02) * 20.0;
     density += overhangNoise * continental;
 
     uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
 
-	
+	vec3 position3D = vec3(worldX, worldY, worldZ);
 
-	vec3 position3D = vec3((int(xPos) + offset.x), (int(yPos) + offset.y), (int(zPos) + offset.z));
-    
     float caveNoise = 0.0;
-    float f3D = 0.01; // Slightly higher frequency for blocky caves
+    float f3D = 0.01;
     float a3D = 1.0;
-    
-    for(int i = 0; i < 3; i++) { // Only 3 octaves needed for caves, saving more performance!
+
+    for(int i = 0; i < 3; i++) {
         caveNoise += a3D * snoise(position3D * f3D);
         f3D *= 2.0;
         a3D *= 0.5;
     }
 
-	float normalizedHeight = float(yPos) / finalTerrainHeight;
+	float normalizedHeight = max(0.0, worldY) / max(1.0, finalTerrainHeight);
 
-    // 2. Define our bounds (You should pass these in as Uniforms eventually!)
-    float bottomThreshold = -0.1; // Lower number = more caves deep underground
-    float topThreshold = 0.6;     // Higher number = almost no caves near the surface
-
-    // 3. Smoothly blend between them based on our height
-    //float caveThreshold = mix(bottomThreshold, topThreshold, normalizedHeight);
-
-    // Optional: Add a curve so caves stay common until the very top, then rapidly disappear.
+    float bottomThreshold = -0.1;
+    float topThreshold = 0.6;
     float caveThreshold = mix(bottomThreshold, topThreshold, pow(normalizedHeight, 2.0));
 
-    // 4. Final Decision
-    if (density > 0.0) {
-        // Run your cave logic here to "chip away" at the density
-        if (caveNoise > caveThreshold) {
-            noiseMap[index] = uint16_t(0); // Cave air
-        } else {
-            noiseMap[index] = uint16_t(1);  // Stone
-        }
+    if (density > 0.0 && caveNoise > caveThreshold) {
+        noiseMap[index] = -1.0;
     } else {
-        noiseMap[index] = uint16_t(0); // Air
+        noiseMap[index] = density;
     }
 }
