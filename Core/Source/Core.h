@@ -2,9 +2,9 @@
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 
-#include "vector"
-#include "glm.hpp"
-
+#include <vector>
+#include <memory>
+#include <glm.hpp>
 
 #include <iostream>
 #include <fstream>
@@ -19,37 +19,47 @@ namespace Core {
 		AppendBuffer(int width, int height, int depth) {
 			maxCapacity = width * height * depth;
 
-			// 1. Setup Counter (just 4 bytes)
 			glGenBuffers(1, &counterSSBO);
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, counterSSBO);
 			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
 
-			// 2. Setup Data List
 			glGenBuffers(1, &dataSSBO);
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, dataSSBO);
 			glBufferData(GL_SHADER_STORAGE_BUFFER, maxCapacity * sizeof(uint32_t), nullptr, GL_STATIC_DRAW);
+
+			// Holds {numGroupsX, 1, 1} written by VoxelCubesQuadCount so VoxelCubesGeometryInit
+			// can call glDispatchComputeIndirect without reading activeCount back to the CPU.
+			glGenBuffers(1, &dispatchIndirect);
+			glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchIndirect);
+			glBufferData(GL_DISPATCH_INDIRECT_BUFFER, 3 * sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
 		}
 
 		~AppendBuffer() {
-			if (counterSSBO) glDeleteBuffers(1, &counterSSBO);
-			if (dataSSBO) glDeleteBuffers(1, &dataSSBO);
+			if (counterSSBO)     glDeleteBuffers(1, &counterSSBO);
+			if (dataSSBO)        glDeleteBuffers(1, &dataSSBO);
+			if (dispatchIndirect) glDeleteBuffers(1, &dispatchIndirect);
 		}
 
 		AppendBuffer(const AppendBuffer&) = delete;
 		AppendBuffer& operator=(const AppendBuffer&) = delete;
 
-		AppendBuffer(AppendBuffer&& other) noexcept : counterSSBO(other.counterSSBO), dataSSBO(other.dataSSBO), maxCapacity(other.maxCapacity) {
-			other.counterSSBO = 0;
-			other.dataSSBO = 0;
-			other.maxCapacity = 0;
+		AppendBuffer(AppendBuffer&& other) noexcept
+			: counterSSBO(other.counterSSBO), dataSSBO(other.dataSSBO),
+			  dispatchIndirect(other.dispatchIndirect), maxCapacity(other.maxCapacity) {
+			other.counterSSBO     = 0;
+			other.dataSSBO        = 0;
+			other.dispatchIndirect = 0;
+			other.maxCapacity     = 0;
 		}
 
-		GLuint getCounterSSBO() const { return counterSSBO; }
-		GLuint getDataSSBO() const { return dataSSBO; }
+		GLuint getCounterSSBO()      const { return counterSSBO; }
+		GLuint getDataSSBO()         const { return dataSSBO; }
+		GLuint getDispatchIndirect() const { return dispatchIndirect; }
 
 	private:
 		GLuint counterSSBO;
 		GLuint dataSSBO;
+		GLuint dispatchIndirect;
 		int maxCapacity;
 	};
 
@@ -128,7 +138,7 @@ namespace Core {
 				other.indexCount = 0;
 				other.maxQuards = 0;
 				other.gpuLoaded = false;
-				other.offset = glm::vec3(0);
+				other.offset = glm::vec2(0);
 			}
 			return *this;
 		}
@@ -148,9 +158,11 @@ namespace Core {
 			if (densitySSBO) glDeleteBuffers(1, &densitySSBO);
 			if (stagingVBO) glDeleteBuffers(1, &stagingVBO);
 			if (stagingIBO) glDeleteBuffers(1, &stagingIBO);
+			if (ssboVertexCounter) glDeleteBuffers(1, &ssboVertexCounter);
+			if (stagingIndirect) glDeleteBuffers(1, &stagingIndirect);
 			if (syncObj) glDeleteSync(syncObj);
 
-			vao = ibo = packedData_SSBO = lowResDensity_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = 0;
+			vao = ibo = packedData_SSBO = lowResDensity_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = ssboVertexCounter = stagingIndirect = 0;
 			offset = glm::vec2(0);
 			syncObj = nullptr;
 			gpuLoaded = false;
@@ -178,9 +190,6 @@ namespace Core {
 	extern GLint _noiseInterp_widthLoc;
 	extern GLint _noiseInterp_heightLoc;
 	extern GLint _noiseInterp_depthLoc;
-	extern GLint _noiseInterp_offsetLoc;
-	extern GLint _noiseInterp_frequencyLoc;
-	extern GLint _noiseInterp_dropoffLoc;
 
 	extern GLint _distanceToAirWidthLoc;
 	extern GLint _distanceToAirHeightLoc;
@@ -213,7 +222,7 @@ namespace Core {
 	void CreateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff);
 	// InterpolateNoise reads the low-res density and writes full-res block IDs.
 	// width/height/depth are the full padded dimensions (e.g. 18x258x18).
-	void InterpolateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff);
+	void InterpolateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth);
 	void SampleDistanceToAir(VoxelCubeMesh& mesh, int width, int height, int depth);
 	void TerrainPaint(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth);
 

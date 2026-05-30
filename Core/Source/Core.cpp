@@ -21,6 +21,11 @@ namespace Core
 		GLuint CreateComputeShaderProgram(const std::string& path) {
 			GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
 			std::string source = readFile(path);
+			if (source.empty()) {
+				std::cerr << "Shader source is empty: " << path << "\n";
+				glDeleteShader(shader);
+				return 0;
+			}
 			const char* src = source.c_str();
 			glShaderSource(shader, 1, &src, nullptr);
 			glCompileShader(shader);
@@ -76,9 +81,6 @@ namespace Core
 		GLint _noiseInterp_widthLoc = 0;
 		GLint _noiseInterp_heightLoc = 0;
 		GLint _noiseInterp_depthLoc = 0;
-		GLint _noiseInterp_offsetLoc = 0;
-		GLint _noiseInterp_frequencyLoc = 0;
-		GLint _noiseInterp_dropoffLoc = 0;
 
 		GLint _distanceToAirWidthLoc = 0;
 		GLint _distanceToAirHeightLoc = 0;
@@ -124,12 +126,9 @@ namespace Core
 			_lowResNoise_frequencyLoc = glGetUniformLocation(_lowResNoiseComputeShader, "frequency");
 			_lowResNoise_dropoffLoc   = glGetUniformLocation(_lowResNoiseComputeShader, "useHeightDropoff");
 
-			_noiseInterp_widthLoc     = glGetUniformLocation(_noiseInterpolationComputeShader, "width");
-			_noiseInterp_heightLoc    = glGetUniformLocation(_noiseInterpolationComputeShader, "height");
-			_noiseInterp_depthLoc     = glGetUniformLocation(_noiseInterpolationComputeShader, "depth");
-			_noiseInterp_offsetLoc    = glGetUniformLocation(_noiseInterpolationComputeShader, "offset");
-			_noiseInterp_frequencyLoc = glGetUniformLocation(_noiseInterpolationComputeShader, "frequency");
-			_noiseInterp_dropoffLoc   = glGetUniformLocation(_noiseInterpolationComputeShader, "useHeightDropoff");
+			_noiseInterp_widthLoc  = glGetUniformLocation(_noiseInterpolationComputeShader, "width");
+			_noiseInterp_heightLoc = glGetUniformLocation(_noiseInterpolationComputeShader, "height");
+			_noiseInterp_depthLoc  = glGetUniformLocation(_noiseInterpolationComputeShader, "depth");
 
 			_distanceToAirWidthLoc = glGetUniformLocation(_distanceToAirComputeShader, "width");
 			_distanceToAirHeightLoc = glGetUniformLocation(_distanceToAirComputeShader, "height");
@@ -154,6 +153,7 @@ namespace Core
 		void Cleanup() {
 			glDeleteProgram(_lowResNoiseComputeShader);
 			glDeleteProgram(_noiseInterpolationComputeShader);
+			glDeleteProgram(_distanceToAirComputeShader);
 			glDeleteProgram(_voxelCubesGeometryInitComputeShader);
 			glDeleteProgram(_voxelCubesTriangleCounterComputeShader);
 			glDeleteProgram(_voxelTerrainPainterComputeShader);
@@ -236,15 +236,13 @@ namespace Core
 			glUniform1f(_lowResNoise_frequencyLoc, frequency);
 			glUniform1i(_lowResNoise_dropoffLoc,   useDropoff);
 
-			glDispatchCompute(
-				(GLuint)ceil(width / 8.0f),
-				(GLuint)ceil(height / 8.0f),
-				(GLuint)ceil(depth / 8.0f)
-			);
+			glDispatchCompute((GLuint)ceil((width + 7) / 8),
+				(GLuint)ceil((height + 7) / 8),
+				(GLuint)ceil((depth + 7) / 8));
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
-		void InterpolateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff) {
+		void InterpolateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth) {
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.lowResDensity_SSBO);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mesh.blockID_SSBO);
 
@@ -253,15 +251,10 @@ namespace Core
 			glUniform1i(_noiseInterp_widthLoc,  width);
 			glUniform1i(_noiseInterp_heightLoc, height);
 			glUniform1i(_noiseInterp_depthLoc,  depth);
-			glUniform3fv(_noiseInterp_offsetLoc, 1, &offset[0]);
-			glUniform1f(_noiseInterp_frequencyLoc, frequency);
-			glUniform1i(_noiseInterp_dropoffLoc,   useDropoff);
 
-			glDispatchCompute(
-				(GLuint)ceil(width / 8.0f),
-				(GLuint)ceil(height / 8.0f),
-				(GLuint)ceil(depth / 8.0f)
-			);
+			glDispatchCompute((GLuint)ceil((width + 7) / 8),
+				(GLuint)ceil((height + 7) / 8),
+				(GLuint)ceil((depth + 7) / 8));
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
@@ -277,11 +270,9 @@ namespace Core
 			glUniform1i(_distanceToAirHeightLoc, height);
 			glUniform1i(_distanceToAirDepthLoc, depth);
 
-			glDispatchCompute(
-				(GLuint)ceil(width / 8.0f),
-				(GLuint)ceil(height / 8.0f),
-				(GLuint)ceil(depth / 8.0f)
-			);
+			glDispatchCompute((GLuint)ceil((width + 7) / 8),
+				(GLuint)ceil((height + 7) / 8),
+				(GLuint)ceil((depth + 7) / 8));
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
@@ -330,9 +321,9 @@ namespace Core
 			glUniform1i(glGetUniformLocation(_voxelCubesSurfaceCullingComputeShader, "depth"), depth);
 
 			// 5. Dispatch: One thread per voxel
-			glDispatchCompute((GLuint)ceil(width / 8.0f),
-				(GLuint)ceil(height / 8.0f),
-				(GLuint)ceil(depth / 8.0f));
+			glDispatchCompute((GLuint)ceil((width + 7) / 8),
+				(GLuint)ceil((height + 7) / 8),
+				(GLuint)ceil((depth+7) / 8));
 
 			// 6. Memory Barrier: Ensure the Active List is built before the Counting step starts
 			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
@@ -363,13 +354,13 @@ namespace Core
 			uint32_t activeCount = 0;
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.getCounterSSBO());
 			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &activeCount);
-			// 2. Only dispatch if there is actually something to draw
-			if (activeCount > 0) {
-				// We use a 1D dispatch.
-				// Since local_size_x = 64, we divide the total count by 64.
-				GLuint numGroups = (activeCount + 63) / 64;
 
-				glDispatchCompute(numGroups, 1, 1);
+			GLuint geomArgs[3] = { (activeCount + 63) / 64, 1, 1 };
+			glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, ab.getDispatchIndirect());
+			glBufferSubData(GL_DISPATCH_INDIRECT_BUFFER, 0, sizeof(geomArgs), geomArgs);
+
+			if (activeCount > 0) {
+				glDispatchCompute(geomArgs[0], 1, 1);
 			}
 			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
 				GL_ELEMENT_ARRAY_BARRIER_BIT |
@@ -379,20 +370,17 @@ namespace Core
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboCounter);
 			int* ptr = (int*)glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
 
-			int vertexCount = 0;
+			int faceCount = 0;
 			if (ptr) {
-				vertexCount = *ptr;
+				faceCount = *ptr;
 				glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
 			}
 			glDeleteBuffers(1, &ssboCounter);
-			return vertexCount;
+			std::cout << faceCount << "\n";
+			return faceCount;
 		}
 
 		void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp) {
-
-			uint32_t activeCount = 0;
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.getCounterSSBO());
-			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &activeCount);
 
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mesh.ibo);
@@ -411,8 +399,8 @@ namespace Core
 			glUniform1f(_geomColumnSizeLoc, 3);
 			glUniform1f(_geomRowSizeLoc, 16);
 
-			GLuint numGroups = (activeCount + 63) / 64;
-			glDispatchCompute(numGroups, 1, 1);
+			glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, ab.getDispatchIndirect());
+			glDispatchComputeIndirect(0);
 
 			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
 				GL_ELEMENT_ARRAY_BARRIER_BIT |
@@ -445,7 +433,7 @@ namespace Core
 
 			CreateNoise(*cubeMeshData, lowResWidth, lowResHeight, lowResDepth, lowResOffset, true, frequency, true);
 
-			InterpolateNoise(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth, offset3D, true, frequency, true);
+			InterpolateNoise(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
 
 			AppendBuffer ab(paddedWidth, paddedHeight, paddedDepth);
 
@@ -467,6 +455,7 @@ namespace Core
 			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);
 			glDeleteBuffers(1, &cubeMeshData->blockID_SSBO);
 			glDeleteBuffers(1, &cubeMeshData->densitySSBO);
+			glDeleteBuffers(1, &cubeMeshData->lowResDensity_SSBO);
 			cubeMeshData->blockID_SSBO = 0;
 
 			return cubeMeshData;
