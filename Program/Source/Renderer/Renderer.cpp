@@ -4,6 +4,51 @@
 #include <filesystem>
 #include "App.h"
 
+namespace {
+	// A view frustum as 6 inward-facing planes. Each plane is (a,b,c,d): a point
+	// (x,y,z) is on the inside when a*x + b*y + c*z + d >= 0, and inside the
+	// frustum when it is inside all 6 planes at once.
+	struct Frustum {
+		glm::vec4 planes[6];
+
+		// Conservative box test. Returns false ONLY when the box is fully on the
+		// outside of at least one plane (so it definitely cannot be seen). A box
+		// straddling an edge is kept, so we never wrongly cull something visible.
+		bool IsBoxVisible(const glm::vec3& mn, const glm::vec3& mx) const {
+			for (int i = 0; i < 6; ++i) {
+				const glm::vec4& p = planes[i];
+				// The "positive vertex": the box corner furthest along this
+				// plane's normal. If even that corner is outside the plane, the
+				// whole box is, so the box cannot intersect the frustum.
+				const glm::vec3 pv(
+					p.x >= 0.0f ? mx.x : mn.x,
+					p.y >= 0.0f ? mx.y : mn.y,
+					p.z >= 0.0f ? mx.z : mn.z);
+				if (p.x * pv.x + p.y * pv.y + p.z * pv.z + p.w < 0.0f)
+					return false;
+			}
+			return true;
+		}
+	};
+
+	// Pull the 6 frustum planes out of a combined clip matrix (projection * view
+	// * model) with the Gribb-Hartmann method. We only need the sign of the
+	// plane test, so the planes are left un-normalized (saves 6 sqrts/frame).
+	// glm is column-major, so matrix row i is (m[0][i], m[1][i], m[2][i], m[3][i]).
+	Frustum ExtractFrustum(const glm::mat4& m) {
+		auto row = [&](int i) { return glm::vec4(m[0][i], m[1][i], m[2][i], m[3][i]); };
+		const glm::vec4 r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
+		Frustum f;
+		f.planes[0] = r3 + r0; // left
+		f.planes[1] = r3 - r0; // right
+		f.planes[2] = r3 + r1; // bottom
+		f.planes[3] = r3 - r1; // top
+		f.planes[4] = r3 + r2; // near
+		f.planes[5] = r3 - r2; // far
+		return f;
+	}
+}
+
 // Static bridge for mouse movement
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
 	App* app = static_cast<App*>(glfwGetWindowUserPointer(window));
@@ -72,7 +117,6 @@ Renderer::Renderer() {
 	_viewLoc = glGetUniformLocation(_shaderProgram, "uView");
 	_normalMatrixLocation = glGetUniformLocation(_shaderProgram, "normalMatrix");
 	_textureUniformLoc = glGetUniformLocation(_shaderProgram, "uTexture");
-	_offsetUniformLoc = glGetUniformLocation(_shaderProgram, "offset");
 
 
 	glUniform1f(_widthLocation, (float)_screenWidth);
@@ -185,11 +229,11 @@ GLuint Renderer::CreateShaderProgram(const std::string& vertexPath, const std::s
 	GLint success;
 	glGetProgramiv(program, GL_LINK_STATUS, &success);
 	if (!success) {
-		GLint logLength;
-		glGetProgramiv(program, GL_LINK_STATUS, &success); // Should be GL_LINK_STATUS, check original code
-		glGetProgramInfoLog(program, logLength, nullptr, nullptr);
-		// Corrected error check in earlier turn, keeping consistent
-		std::cerr << "Shader program link error\n";
+		GLint logLength = 0;
+		glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
+		std::vector<char> log(logLength);
+		glGetProgramInfoLog(program, logLength, nullptr, log.data());
+		std::cerr << "Shader program link error:\n" << log.data() << "\n";
 		glDeleteProgram(program);
 		program = 0;
 	}
@@ -200,20 +244,85 @@ GLuint Renderer::CreateShaderProgram(const std::string& vertexPath, const std::s
 }
 
 void Renderer::DrawChunks(ChunkMeshManager& chunkManager) {
-	std::unordered_map<ChunkCoord, std::unique_ptr<Core::VoxelCubeMesh>>& chunkMap = chunkManager.GetChunkMap();
+	std::unordered_map<ChunkCoord, ChunkResident>& chunkMap = chunkManager.GetChunkMap();
 	_chunkRenderer.UpdateActiveChunk(_camera.GetPosition(), chunkManager);
 
-	for (const glm::ivec2& coord : _chunkRenderer.GetActiveChunkSet()) {
+	// Build the view frustum once per frame from the SAME transform the vertex
+	// shader uses (projM * uView * uModel). Chunks whose bounding box falls fully
+	// outside it are skipped below. This is the big win: the active set is a full
+	// disc around the player, but the camera only ever sees a forward wedge of it.
+	const glm::mat4 clip = _camera.GetProjectionMatrix() * _camera.GetViewMatrix() * _model;
+	const Frustum frustum = ExtractFrustum(clip);
+
+	// One command list of scratch per pool. (Re)size to the pool count once; after
+	// that we only clear() each frame, which keeps the capacity so no reallocation.
+	const int poolCount = chunkManager.PoolCount();
+	if ((int)_drawCommands.size() != poolCount) {
+		_drawCommands.assign(poolCount, {});
+	}
+	for (int p = 0; p < poolCount; ++p) {
+		_drawCommands[p].clear();
+	}
+
+	// Bucket every visible chunk into its pool's command list. Each command's
+	// baseInstance carries the chunk's slot; the vertex shader uses that
+	// (gl_BaseInstanceARB) to look up the chunk's offset, which the pool stores
+	// per-slot. So there is no per-frame offset list to keep in sync any more.
+	for (const glm::vec2& coord : _chunkRenderer.GetActiveChunkSet()) {
 		auto it = chunkMap.find(coord);
-		if (it != chunkMap.end()) {
-			Core::VoxelCubeMesh* voxelData = it->second.get();
-			if (voxelData) {
-				glBindVertexArray(voxelData->vao);
-				glBindBuffer(GL_DRAW_INDIRECT_BUFFER, voxelData->indirectBuffer);
-				glUniform2fv(_offsetUniformLoc, 1, &voxelData->offset[0]);
-				glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (void*)0);
-			}
-		}
+		if (it == chunkMap.end()) continue;
+
+		const ChunkResident& res = it->second;
+		if (res.poolId < 0 || res.quadCount <= 0) continue; // empty chunk or no slot
+
+		// Conservative chunk AABB in pre-model (worldPos) space: x and z span one
+		// chunk out from its world offset, y spans the full build height. If it is
+		// fully off-screen, skip it - no command, no offset, no GPU work.
+		const glm::vec3 boxMin(res.offset.x, 0.0f, res.offset.y);
+		const glm::vec3 boxMax(res.offset.x + (float)_width, (float)_height, res.offset.y + (float)_depth);
+		if (!frustum.IsBoxVisible(boxMin, boxMax)) continue;
+
+		const ChunkPool& pool = chunkManager.GetPool(res.poolId);
+		DrawElementsIndirectCommand cmd;
+		cmd.count         = static_cast<GLuint>(res.quadCount) * 6;
+		cmd.instanceCount = 1;
+		cmd.firstIndex    = pool.FirstIndex(res.slot);  // index units; chunk-local 0-based indices
+		cmd.baseVertex    = pool.BaseVertex(res.slot);  // shift them into this slot's vertex range
+		cmd.baseInstance  = static_cast<GLuint>(res.slot); // shader reads chunkOffsets[gl_BaseInstanceARB]
+		_drawCommands[res.poolId].push_back(cmd);
+	}
+
+	// One glMultiDrawElementsIndirect per non-empty pool: upload this frame's
+	// command list, bind the pool's static per-slot offset table at SSBO binding
+	// 0, then fire the whole pool in a single GL call.
+	for (int p = 0; p < poolCount; ++p) {
+		const std::vector<DrawElementsIndirectCommand>& cmds = _drawCommands[p];
+		if (cmds.empty()) continue;
+
+		ChunkPool& pool = chunkManager.GetPool(p);
+
+		// Orphan the command buffer first (glBufferData with nullptr) so this
+		// upload gets fresh storage and can't stall waiting on last frame's draw
+		// still reading the old commands. We keep its full per-slot capacity and
+		// fill only the visible prefix. Offsets are NOT uploaded here - they live
+		// in the pool's per-slot SSBO, written once when each chunk migrated in.
+		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, pool.IndirectBuffer());
+		glBufferData(GL_DRAW_INDIRECT_BUFFER,
+			static_cast<GLsizeiptr>(pool.SlotCount()) * sizeof(DrawElementsIndirectCommand),
+			nullptr, GL_DYNAMIC_DRAW);
+		glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0,
+			static_cast<GLsizeiptr>(cmds.size()) * sizeof(DrawElementsIndirectCommand),
+			cmds.data());
+
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, pool.OffsetSSBO());
+
+		glBindVertexArray(pool.Vao());
+		glMultiDrawElementsIndirect(
+			GL_TRIANGLES,
+			GL_UNSIGNED_SHORT,
+			nullptr,                                  // commands come from the bound indirect buffer
+			static_cast<GLsizei>(cmds.size()),
+			0);                                       // tightly packed (stride 0 = sizeof(command))
 	}
 	glBindVertexArray(0);
 }

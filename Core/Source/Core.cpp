@@ -376,7 +376,6 @@ namespace Core
 				glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
 			}
 			glDeleteBuffers(1, &ssboCounter);
-			std::cout << faceCount << "\n";
 			return faceCount;
 		}
 
@@ -453,10 +452,9 @@ namespace Core
 			glDeleteBuffers(1, &cubeMeshData->stagingIBO);
 			glDeleteBuffers(1, &cubeMeshData->ssboVertexCounter);
 			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);
-			glDeleteBuffers(1, &cubeMeshData->blockID_SSBO);
 			glDeleteBuffers(1, &cubeMeshData->densitySSBO);
 			glDeleteBuffers(1, &cubeMeshData->lowResDensity_SSBO);
-			cubeMeshData->blockID_SSBO = 0;
+			// Keep blockID_SSBO alive: the caller reads it back to the CPU for physics, then the destructor frees it.
 
 			return cubeMeshData;
 		}

@@ -23,6 +23,7 @@
 #include "Renderer/ChunkMeshManager.h"
 #include "World/Player/Player.h"
 #include "Renderer/ChunkRenderer.h"
+#include "Renderer/ChunkPool.h"
 #include "Renderer/Camera.h"
 #include "Core.h"
 
@@ -95,8 +96,12 @@ private:
     GLint _viewLoc;
     GLint _normalMatrixLocation;
     GLint _textureUniformLoc;
-    GLint _offsetUniformLoc;
     GLuint textureID;
+
+    // Per-frame scratch for the multidraw path: one command list per pool, holding
+    // just this frame's visible (frustum-passing) chunks. Kept as a member so its
+    // backing storage is reused frame to frame instead of reallocating each Render().
+    std::vector<std::vector<DrawElementsIndirectCommand>> _drawCommands;
 
     void Init();
     std::string ReadFile(const std::string& filePath);

@@ -1,6 +1,10 @@
 #include "App.h"
 
 App::App() : _renderer(), _chunkMeshManager(), _world(), _chunkCreator() {
+	// Wire the block-readback seam: render thread produces into the queue, world
+	// thread consumes from it. Neither side references the other.
+	_chunkMeshManager.SetBlockDataSink(&_blockDataQueue);
+	_world.SetBlockDataQueue(&_blockDataQueue);
 }
 
 App::~App() {
@@ -85,9 +89,16 @@ void App::HandleKeyboardInput(float deltaTime) {
 	}
 	_oldState = newState;
 
+	int newFlyState = glfwGetKey(window, GLFW_KEY_F);
+	if (newFlyState == GLFW_PRESS && _oldFlyState == GLFW_RELEASE) {
+		_flyModeEnabled = !_flyModeEnabled;
+	}
+	_oldFlyState = newFlyState;
+
 	if (_cursorEnabled) return;
 
 	std::lock_guard<std::mutex> lock(_inputMutex);
+	_currentInput.flyMode = _flyModeEnabled;
 	_currentInput.moveForward = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
 	_currentInput.moveBackward = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
 	_currentInput.moveLeft = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;

@@ -15,5 +15,8 @@ struct PlayerInputState {
 
     bool isSprinting = false;
 
+    // When true the player free-flies (no gravity/collision); toggled with F.
+    bool flyMode = true;
+
     // Optional: Add actions later (e.g., bool breakBlock = false;)
 };

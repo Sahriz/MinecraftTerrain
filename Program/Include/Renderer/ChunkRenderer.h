@@ -29,7 +29,6 @@ public:
 	}
 private:
 	std::unordered_set<glm::vec2> _activeChunkSet;
-	std::unordered_set<glm::vec2> _previousFrameActiveChunkSet;
 	
 	int _width;
 	int _height;

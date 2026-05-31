@@ -1,4 +1,5 @@
 #version 430 core
+#extension GL_ARB_shader_draw_parameters : require
 
 layout(location = 0) in uint aPackedData;
 
@@ -7,7 +8,16 @@ uniform mat4 projM;
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat3 normalMatrix;
-uniform vec2 offset;
+
+// One world-space offset per POOL SLOT (not per draw). Each multidraw command
+// sets baseInstance = its chunk's slot, and we index this table with
+// gl_BaseInstanceARB below. Because a chunk's slot is stable while it stays
+// resident, this table is written once when the chunk loads and never per
+// frame - even though the per-frame command list changes as chunks frustum-cull
+// in and out of view.
+layout(std430, binding = 0) readonly buffer ChunkOffsets {
+    vec2 chunkOffsets[];
+};
 
 out vec3 FragPos;
 out vec3 Normal;
@@ -61,6 +71,7 @@ uint unpackTexID(){
 void main()
 {
     vec3 position = unpackVertexPosition();
+    vec2 offset = chunkOffsets[gl_BaseInstanceARB];
     vec3 worldPos = position + vec3(offset.x, 0.0, offset.y);
     vec3 normal = getNormal();
     FragPos = vec3(uModel*vec4(worldPos, 1.0f));

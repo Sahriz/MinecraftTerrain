@@ -6,6 +6,7 @@
 #include <atomic>
 
 #include "Helpers/InputState.h"
+#include "Helpers/BlockDataQueue.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/Camera.h"
 #include "Renderer/ChunkMeshManager.h"
@@ -31,6 +32,10 @@ private:
     ChunkCreator _chunkCreator;
     World _world;
 
+    // Hands GPU->CPU block readbacks from the render thread to the world thread.
+    // Owned here so both _chunkMeshManager (producer) and _world (consumer) outlive it.
+    BlockDataQueue _blockDataQueue;
+
     PlayerInputState _currentInput;
 
     using Clock = std::chrono::high_resolution_clock;
@@ -46,6 +51,11 @@ private:
 
     bool _cursorEnabled = false;
     int _oldState = 0; // GLFW_RELEASE
+
+    // Fly-mode toggle (F). Starts enabled so the world opens in free-fly; toggle
+    // off to drop into walking physics. Render-thread-only state.
+    bool _flyModeEnabled = true;
+    int _oldFlyState = 0; // GLFW_RELEASE
 
     void HandleKeyboardInput(float deltaTime, GLFWwindow* window);
 };

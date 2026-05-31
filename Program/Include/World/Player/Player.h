@@ -44,6 +44,14 @@ public:
 	const glm::vec3& GetPosition() const { return _position; }
 	const glm::vec3& GetFront() const { return _front; }
 	const glm::vec3& GetUp() const { return _up; }
+	const glm::vec3& GetRight() const { return _right; }
+
+	// Physics state, driven by World::StepPhysics when not in fly mode.
+	const glm::vec3& GetVelocity() const { return _velocity; }
+	void SetVelocity(const glm::vec3& velocity) { _velocity = velocity; }
+	void SetPosition(const glm::vec3& position) { _position = position; }
+	bool IsGrounded() const { return _grounded; }
+	void SetGrounded(bool grounded) { _grounded = grounded; }
 
 private:
 	void UpdateVectors() {
@@ -62,6 +70,9 @@ private:
 	glm::vec3 _front{ 0.0f, 0.0f, -1.0f };
 	glm::vec3 _up{ 0.0f, 1.0f, 0.0f };
 	glm::vec3 _right{ 1.0f, 0.0f, 0.0f };
+
+	glm::vec3 _velocity{ 0.0f, 0.0f, 0.0f };
+	bool _grounded = false;
 
 	float _yaw = -90.0f;
 	float _pitch = 0.0f;
