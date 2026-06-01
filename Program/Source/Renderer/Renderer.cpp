@@ -112,7 +112,8 @@ Renderer::Renderer() {
 	_modelMLocation = glGetUniformLocation(_shaderProgram, "uModel");
 	_viewLoc = glGetUniformLocation(_shaderProgram, "uView");
 	_normalMatrixLocation = glGetUniformLocation(_shaderProgram, "normalMatrix");
-	_textureUniformLoc = glGetUniformLocation(_shaderProgram, "uTexture");
+	_textureUniformLoc = glGetUniformLocation(_shaderProgram, "uTextureArray");
+
 
 
 	glUniform1f(_widthLocation, (float)_screenWidth);
@@ -429,7 +430,7 @@ void Renderer::Render(ChunkMeshManager& chunkManager, const PlayerTransform& pla
 	glUniform1f(_timeLocation, timeValue);
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, textureID);
+	glBindTexture(GL_TEXTURE_2D_ARRAY, textureID);
 	glUniform1i(_textureUniformLoc, 0);
 
 	DrawChunks(chunkManager);

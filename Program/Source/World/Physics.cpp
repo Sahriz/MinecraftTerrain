@@ -51,21 +51,21 @@ void Physics::Step(Player& player, const ChunkBlockManager& blocks,
     // Resolve one axis at a time so a blocked axis still lets the others slide.
     // On contact, snap flush against the voxel face and zero that axis' velocity.
     pos.x += delta.x;
-    if (BoxBlocked(blocks, pos)) {
+    if (BoxBlocked(blocks, pos, 0.05f)) {
         if (delta.x > 0.0f)      pos.x = std::floor(pos.x + kHalfWidth) - kHalfWidth;
         else if (delta.x < 0.0f) pos.x = std::floor(pos.x - kHalfWidth) + 1.0f + kHalfWidth;
         vel.x = 0.0f;
     }
 
     pos.z += delta.z;
-    if (BoxBlocked(blocks, pos)) {
+    if (BoxBlocked(blocks, pos, 0.05f)) {
         if (delta.z > 0.0f)      pos.z = std::floor(pos.z + kHalfWidth) - kHalfWidth;
         else if (delta.z < 0.0f) pos.z = std::floor(pos.z - kHalfWidth) + 1.0f + kHalfWidth;
         vel.z = 0.0f;
     }
 
     pos.y += delta.y;
-    if (loaded && BoxBlocked(blocks, pos)) {
+    if (loaded && BoxBlocked(blocks, pos, 0.0f)) {
         if (delta.y < 0.0f) {
             // Landed: rest the feet on the top face of the voxel below.
             const float feet = pos.y - kEyeHeight;
@@ -84,8 +84,8 @@ void Physics::Step(Player& player, const ChunkBlockManager& blocks,
     player.SetGrounded(grounded);
 }
 
-bool Physics::BoxBlocked(const ChunkBlockManager& blocks, const glm::vec3& eyePos) const {
-    glm::vec3 bmin(eyePos.x - kHalfWidth, eyePos.y - kEyeHeight, eyePos.z - kHalfWidth);
+bool Physics::BoxBlocked(const ChunkBlockManager& blocks, const glm::vec3& eyePos, float yOffset) const {
+    glm::vec3 bmin(eyePos.x - kHalfWidth, eyePos.y - kEyeHeight + yOffset, eyePos.z - kHalfWidth);
     glm::vec3 bmax(eyePos.x + kHalfWidth, eyePos.y + kHeadAbove, eyePos.z + kHalfWidth);
     return blocks.IsBoxColliding(bmin, bmax);
 }

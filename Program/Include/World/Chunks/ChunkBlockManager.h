@@ -7,10 +7,15 @@
 #include <cstdint>
 #include <glm.hpp>
 #include "Helpers/HashHelpers.h"
+#include "Helpers/Config.h"
 
 class ChunkBlockManager {
 public:
-    ChunkBlockManager() = default;
+    ChunkBlockManager() {
+        _chunkWidth = Config::Get().chunkWidth;
+        _chunkHeight = Config::Get().chunkHeight;
+        _chunkDepth = Config::Get().chunkDepth;
+    }
 
     void UpdateActiveWindow(const glm::vec3& playerPosition, int viewDistance);
 

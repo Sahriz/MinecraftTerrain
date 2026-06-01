@@ -25,7 +25,7 @@ public:
 
 private:
     // True if the player's AABB (centered on the eye position) overlaps solid terrain.
-    bool BoxBlocked(const ChunkBlockManager& blocks, const glm::vec3& eyePos) const;
+    bool BoxBlocked(const ChunkBlockManager& blocks, const glm::vec3& eyePos, float yOffset = 0.0f) const;
 
     // Player collision box: 0.6 wide, 1.8 tall, eye sitting 1.62 above the feet.
     static constexpr float kHalfWidth = 0.3f;

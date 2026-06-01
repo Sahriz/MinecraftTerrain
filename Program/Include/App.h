@@ -10,7 +10,6 @@
 #include "Renderer/Renderer.h"
 #include "Renderer/Camera.h"
 #include "Renderer/ChunkMeshManager.h"
-#include "Renderer/ChunkCreator.h"
 #include "World/World.h"
 
 class App {
@@ -29,7 +28,6 @@ private:
 
     Renderer _renderer;
     ChunkMeshManager _chunkMeshManager;
-    ChunkCreator _chunkCreator;
     World _world;
 
     // Hands GPU->CPU block readbacks from the render thread to the world thread.
@@ -41,7 +39,7 @@ private:
     using Clock = std::chrono::high_resolution_clock;
     using Time = std::chrono::duration<double>;
 
-    const double TICK_RATE = 1.0 / 60.0;
+    double TICK_RATE = 1.0 / 60.0;
 
     std::mutex _inputMutex;
     std::atomic<bool> _running{ true };

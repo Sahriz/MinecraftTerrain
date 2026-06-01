@@ -30,6 +30,8 @@
 
 
 
+#include "Helpers/Config.h"
+
 using ChunkCoord = glm::vec2;
 
 
@@ -56,10 +58,10 @@ public:
     
 private:
     Camera _camera;
-    int _width = 16;
-    int _height = 256;
-    int _depth = 16;
-    int _viewDistance = 24;
+    int _width = Config::Get().chunkWidth;
+    int _height = Config::Get().chunkHeight;
+    int _depth = Config::Get().chunkDepth;
+    int _viewDistance = Config::Get().viewDistance;
     ChunkRenderer _chunkRenderer = ChunkRenderer(_width, _height, _depth, _viewDistance);
 
     glm::mat4 _identity;
@@ -74,11 +76,11 @@ private:
     float _displayedFps = 0.0f;
 
     float _scale = 0.1f;
-    float _amplitude = 1.0f;
-    float _frequency = 0.1f;
-    int _octave = 5;
-    float _lacunarity = 2.0f;
-    float _persistance = 0.5f;
+    float _amplitude = Config::Get().noiseAmplitude;
+    float _frequency = Config::Get().noiseFrequency;
+    int _octave = Config::Get().noiseOctaves;
+    float _lacunarity = Config::Get().noiseLacunarity;
+    float _persistance = Config::Get().noisePersistence;
     
 
     int _screenWidth = 1920;

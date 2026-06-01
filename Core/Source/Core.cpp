@@ -395,74 +395,81 @@ namespace Core
 				GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
-		std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int height, int depth, glm::vec2 offset, bool CleanUp, const float amplitude, const float frequency, const float persistance, const float lacunarity, const int octaves, const bool useDropoff, int maxTerrainQuads, int maxWaterQuads) {
+		std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int height, int depth, glm::vec2 offset, bool CleanUp, GLuint blockSSBO, const ScratchMesh& scratch, const float amplitude, const float frequency, const float persistance, const float lacunarity, const int octaves, const bool useDropoff, int maxTerrainQuads, int maxWaterQuads) {
 			std::unique_ptr<VoxelCubeMesh> cubeMeshData = std::make_unique<VoxelCubeMesh>();
 			cubeMeshData->gpuLoaded = true;
 			cubeMeshData->offset = offset;
+			cubeMeshData->ownsBuffers = false;
+
+			// Assign scratch buffer handles
+			cubeMeshData->vao = scratch.vao;
+			cubeMeshData->ibo = scratch.ibo;
+			cubeMeshData->packedData_SSBO = scratch.packedData_SSBO;
+			cubeMeshData->waterPackedData_SSBO = scratch.waterPackedData_SSBO;
+			cubeMeshData->waterIbo = scratch.waterIbo;
+			cubeMeshData->waterVertexCounter = scratch.waterVertexCounter;
+			cubeMeshData->waterIndirectBuffer = scratch.waterIndirectBuffer;
+			cubeMeshData->lowResDensity_SSBO = scratch.lowResDensity_SSBO;
+			cubeMeshData->distanceToAirSSBO = scratch.distanceToAirSSBO;
+			cubeMeshData->indirectBuffer = scratch.indirectBuffer;
+			cubeMeshData->ssboVertexCounter = scratch.ssboVertexCounter;
+			cubeMeshData->stagingIndirect = scratch.stagingIndirect;
+
+			// Assign block ID buffer
+			cubeMeshData->blockID_SSBO = blockSSBO;
 
 			int paddedWidth  = width  + 2;
 			int paddedHeight = height + 2;
 			int paddedDepth  = depth  + 2;
 
-			// Low-res grid dimensions: one extra sample per axis beyond the half-res count.
-			// Samples land at world-aligned odd padded positions (-1, 1, 3, ..., paddedDim-1),
-			// which are shared exactly between adjacent chunks at both seam edges.
-			int lowResWidth  = paddedWidth  / 2 + 1;  // 10 for paddedWidth=18
-			int lowResHeight = paddedHeight / 2 + 1;  // 130 for paddedHeight=258
-			int lowResDepth  = paddedDepth  / 2 + 1;  // 10 for paddedDepth=18
+			int lowResWidth  = paddedWidth  / 2 + 1;
+			int lowResHeight = paddedHeight / 2 + 1;
+			int lowResDepth  = paddedDepth  / 2 + 1;
 
 			glm::vec3 offset3D = glm::vec3(offset.x, 0, offset.y);
-
-			// Shift offset by -1 so low-res index 0 maps to padded position -1 in world space.
 			glm::vec3 lowResOffset = offset3D - glm::vec3(1.0f);
 
-			InitializeVoxelCubeMesh(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
+			// Reset reused vertex counters & draw command counters to 0 via glBufferSubData
+			int zero = 0;
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, cubeMeshData->ssboVertexCounter);
+			glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(int), &zero);
+
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, cubeMeshData->waterVertexCounter);
+			glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(int), &zero);
+
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cubeMeshData->indirectBuffer);
+			glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, sizeof(uint32_t), &zero);
+
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cubeMeshData->waterIndirectBuffer);
+			glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, sizeof(uint32_t), &zero);
 
 			CreateNoise(*cubeMeshData, lowResWidth, lowResHeight, lowResDepth, lowResOffset, true, frequency, true);
 
 			InterpolateNoise(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
 
-			AppendBuffer ab(paddedWidth, paddedHeight, paddedDepth);       // land surface voxels
-			AppendBuffer abWater(paddedWidth, paddedHeight, paddedDepth);  // water surface voxels
+			// Wrap existing scratch active-voxel lists in lightweight AppendBuffers
+			AppendBuffer ab(scratch.activeVoxelCounter, scratch.activeVoxelList, paddedWidth * paddedHeight * paddedDepth);
+			AppendBuffer abWater(scratch.waterActiveVoxelCounter, scratch.waterActiveVoxelList, paddedWidth * paddedHeight * paddedDepth);
 
-			// One sweep over the volume routes each surface voxel into the land or water list.
 			PerformVoxelCubesSurfaceCulling(*cubeMeshData, ab, abWater, paddedWidth, paddedHeight, paddedDepth, 0.0f);
 
 			SampleDistanceToAir(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
 
 			TerrainPaint(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth);
 
-			// No count pre-pass: size the geometry scratch to the largest a pool slot can
-			// hold and let GeometryInit append straight into it. The real quad count is
-			// read back from the vertex counter later (behind a fence), so this never
-			// stalls waiting on the GPU.
+			// Size geometry scratch buffers using max limits
+			cubeMeshData->maxQuards = maxTerrainQuads;
+			cubeMeshData->maxWaterQuads = maxWaterQuads;
 
-			// --- Terrain mesh (meshMode 0: emit a face vs air OR water) ---
-			InitializeVoxelCubeMeshSize(*cubeMeshData, maxTerrainQuads);
+			// Write meshes
 			VoxelCubesGeometryInit(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, maxTerrainQuads, CleanUp, 0);
-
-			// --- Water mesh (meshMode 1: emit a face vs air only) ---
-			InitializeWaterMeshSize(*cubeMeshData, maxWaterQuads);
 			VoxelCubesGeometryInit(*cubeMeshData, abWater, paddedWidth, paddedHeight, paddedDepth, offset3D, maxWaterQuads, CleanUp, 1);
 
-			// Hand the active-voxel lists to the mesh so they outlive this function. Both
-			// geometry passes above read them on a deferred (fenced) timeline; if the local
-			// AppendBuffers freed them at return, the GPU could read freed buffers -- this
-			// driver doesn't reliably defer buffer deletion past in-flight work -- yielding
-			// empty/garbage chunks. The mesh frees them later, after the geometry fence.
+			// Clear AppendBuffer handles so their wrapper destructors do not delete the pooled buffers
 			cubeMeshData->activeVoxelCounter      = ab.releaseCounterSSBO();
 			cubeMeshData->activeVoxelList         = ab.releaseDataSSBO();
 			cubeMeshData->waterActiveVoxelCounter = abWater.releaseCounterSSBO();
 			cubeMeshData->waterActiveVoxelList    = abWater.releaseDataSSBO();
-
-			// These intermediate buffers are kept alive in the mesh object so they outlive
-			// the asynchronous compute dispatches. The mesh destructor (called after the
-			// generation/migration fences signal) will free them.
-
-			// Kept alive for the deferred migration: the vertex counters (the manager reads
-			// them after a fence to learn how many quads to copy), the packed/index buffers
-			// (the pool copies out of them), and blockID_SSBO (physics readback). Release()
-			// frees them all when the mesh dies after it lands in a pool slot.
 
 			return cubeMeshData;
 		}

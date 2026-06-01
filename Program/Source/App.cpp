@@ -1,6 +1,8 @@
 #include "App.h"
+#include "Helpers/Config.h"
 
-App::App() : _renderer(), _chunkMeshManager(), _world(), _chunkCreator() {
+App::App() : _renderer(), _chunkMeshManager(), _world() {
+	TICK_RATE = 1.0 / Config::Get().tickRate;
 	// Wire the block-readback seam: render thread produces into the queue, world
 	// thread consumes from it. Neither side references the other.
 	_chunkMeshManager.SetBlockDataSink(&_blockDataQueue);
@@ -123,7 +125,7 @@ void App::ProcessMouseMovement(double xpos, double ypos) {
 	_lastX = (float)xpos;
 	_lastY = (float)ypos;
 
-	static float sensitivity = 0.1f;
+	float sensitivity = Config::Get().playerSensitivity;
 	xoffset *= sensitivity;
 	yoffset *= sensitivity;
 

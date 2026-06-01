@@ -9,6 +9,8 @@
 
 #include "Core.h"
 
+#include "Helpers/Config.h"
+
 using ChunkCoord = glm::vec2;
 
 #include "Helpers/HashHelpers.h"
@@ -33,6 +35,7 @@ class ChunkMeshManager {
 public:
 
 	ChunkMeshManager();
+	~ChunkMeshManager();
 
 	ChunkMeshManager(const ChunkMeshManager&) = delete;
 	ChunkMeshManager& operator=(const ChunkMeshManager&) = delete;
@@ -61,30 +64,7 @@ public:
 	// Delete meshes that were held for migration/generation once the GPU is done.
 	void PollCleanups();
 
-	void DestroyChunks() {
-		_chunkMap.clear();
-		_pools.clear();      // free pool arenas/VAOs while the GL context is still current
-		_waterPools.clear(); // same for the transparent water pools
-
-		// Free the owned block buffers and outstanding fences while the context is current.
-		for (PendingReadback& pr : _pendingReadbacks) {
-			if (pr.fence) glDeleteSync(pr.fence);
-			if (pr.blockSSBO) glDeleteBuffers(1, &pr.blockSSBO);
-		}
-		_pendingReadbacks.clear();
-
-		// Drop in-flight generations too; the unique_ptr meshes free their GPU buffers.
-		for (PendingGeneration& pg : _pendingGenerations) {
-			if (pg.fence) glDeleteSync(pg.fence);
-		}
-		_pendingGenerations.clear();
-		_pendingGenCoords.clear();
-
-		for (PendingCleanup& pc : _pendingCleanups) {
-			if (pc.fence) glDeleteSync(pc.fence);
-		}
-		_pendingCleanups.clear();
-	}
+	void DestroyChunks();
 
 	glm::vec2 GetChunkCoordFromPosition(const glm::vec3& position) const {
 		return glm::vec2(
@@ -163,16 +143,30 @@ private:
 	std::unordered_set<ChunkCoord> _pendingGenCoords;   // coords mid-generation, so we don't re-kick them
 	std::vector<PendingCleanup>    _pendingCleanups;    // meshes whose buffers are in flight (copy/read)
 
+	// Scratch & Block pooling members
+	void InitScratchPool(int maxTerrainQuads, int maxWaterQuads);
+	void DestroyScratchPool();
+	int ClaimScratchSlot();
+	void ReturnScratchSlot(int slot);
+
+	GLuint ClaimBlockBuffer();
+	void ReturnBlockBuffer(GLuint buffer);
+
+	std::vector<Core::ScratchMesh> _scratchPool;
+	std::vector<int>              _freeScratchSlots;
+	std::vector<GLuint>           _blockBufferPool;
+	std::vector<GLuint>           _freeBlockBuffers;
+
 	float _scale = 0.1f;
-	float _amplitude = 1.0f;
-	float _frequency = 0.1f;
-	int _octave = 5;
-	float _lacunarity = 2.0f;
-	float _persistance = 0.5f;
-	int _width = 16;
-	int _height = 256;
-	int _depth = 16;
-	int _viewDistance = 24;
+	float _amplitude = Config::Get().noiseAmplitude;
+	float _frequency = Config::Get().noiseFrequency;
+	int _octave = Config::Get().noiseOctaves;
+	float _lacunarity = Config::Get().noiseLacunarity;
+	float _persistance = Config::Get().noisePersistence;
+	int _width = Config::Get().chunkWidth;
+	int _height = Config::Get().chunkHeight;
+	int _depth = Config::Get().chunkDepth;
+	int _viewDistance = Config::Get().viewDistance;
 
 	void DeleteChunk(glm::vec2 coord);
 	ChunkResident MigrateToPool(Core::VoxelCubeMesh& mesh);

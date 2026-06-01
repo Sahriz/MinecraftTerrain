@@ -93,8 +93,8 @@ bool ChunkBlockManager::IsBoxColliding(const glm::vec3& boxMin, const glm::vec3&
     const int gxHi = (int)std::floor(boxMax.x);
     const int gzLo = (int)std::floor(boxMin.z) - 2;
     const int gzHi = (int)std::floor(boxMax.z);
-    const int lyLo = (int)std::floor(boxMin.y);
-    const int lyHi = (int)std::floor(boxMax.y) + 1;
+    const int lyLo = (int)std::floor(boxMin.y) - 2;
+    const int lyHi = (int)std::floor(boxMax.y) + 2;
 
     for (int gx = gxLo; gx <= gxHi; ++gx) {
         const float vMinX = (float)gx + 1.0f;

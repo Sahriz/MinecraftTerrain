@@ -14,8 +14,30 @@
 
 namespace Core {
 
+	struct ScratchMesh {
+		GLuint vao = 0;
+		GLuint ibo = 0;
+		GLuint packedData_SSBO = 0;
+		GLuint waterPackedData_SSBO = 0;
+		GLuint waterIbo = 0;
+		GLuint waterVertexCounter = 0;
+		GLuint waterIndirectBuffer = 0;
+		GLuint lowResDensity_SSBO = 0;
+		GLuint distanceToAirSSBO = 0;
+		GLuint indirectBuffer = 0;
+		GLuint ssboVertexCounter = 0;
+		GLuint activeVoxelCounter = 0;
+		GLuint activeVoxelList = 0;
+		GLuint waterActiveVoxelCounter = 0;
+		GLuint waterActiveVoxelList = 0;
+		GLuint stagingIndirect = 0;
+	};
+
 	class AppendBuffer {
 	public:
+		AppendBuffer(GLuint counter, GLuint data, int capacity)
+			: counterSSBO(counter), dataSSBO(data), maxCapacity(capacity) {}
+
 		AppendBuffer(int width, int height, int depth) {
 			maxCapacity = width * height * depth;
 
@@ -94,6 +116,9 @@ namespace Core {
 
 		glm::vec2 offset = glm::vec2(0.0);
 
+		bool ownsBuffers = true;
+		int scratchSlot = -1;
+
 		// Logic data
 		int indexCount = 0;
 		int maxQuards = 0;
@@ -137,6 +162,8 @@ namespace Core {
 				maxQuards = other.maxQuards;
 				gpuLoaded = other.gpuLoaded;
 				offset = other.offset;
+				ownsBuffers = other.ownsBuffers;
+				scratchSlot = other.scratchSlot;
 
 				// CRITICAL: Set 'other' to 0 so its destructor doesn't delete the buffers we just stole
 				other.vao = 0;
@@ -165,6 +192,8 @@ namespace Core {
 				other.maxWaterQuads = 0;
 				other.gpuLoaded = false;
 				other.offset = glm::vec2(0);
+				other.ownsBuffers = true;
+				other.scratchSlot = -1;
 			}
 			return *this;
 		}
@@ -174,6 +203,16 @@ namespace Core {
 		}
 	private:
 		void Release() {
+			if (!ownsBuffers) {
+				vao = ibo = packedData_SSBO = lowResDensity_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = ssboVertexCounter = stagingIndirect = 0;
+				waterPackedData_SSBO = waterIbo = waterVertexCounter = waterIndirectBuffer = 0;
+				activeVoxelCounter = activeVoxelList = waterActiveVoxelCounter = waterActiveVoxelList = 0;
+				maxWaterQuads = 0;
+				offset = glm::vec2(0);
+				syncObj = nullptr;
+				gpuLoaded = false;
+				return;
+			}
 			if (vao) glDeleteVertexArrays(1, &vao);
 			if (ibo) glDeleteBuffers(1, &ibo);
 			if (packedData_SSBO) glDeleteBuffers(1, &packedData_SSBO);
@@ -268,7 +307,7 @@ namespace Core {
 	// maxTerrainQuads/maxWaterQuads size the geometry scratch buffers (no count pre-pass);
 	// pass the largest pool bucket so a full chunk fits. The actual quad count is read back
 	// later from the vertex counters.
-	std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int heigth, int depth, glm::vec2 offset, bool CleanUp, const float amplitude = 1.0f, const float frequency = 1.0f, const float persistance = 0.5f, const float lacunarity = 2.0f, const int octaves = 5, const bool useDropoff = true, int maxTerrainQuads = 12288, int maxWaterQuads = 8192);
+	std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int heigth, int depth, glm::vec2 offset, bool CleanUp, GLuint blockSSBO, const ScratchMesh& scratch, const float amplitude = 1.0f, const float frequency = 1.0f, const float persistance = 0.5f, const float lacunarity = 2.0f, const int octaves = 5, const bool useDropoff = true, int maxTerrainQuads = 12288, int maxWaterQuads = 8192);
 
 
 }

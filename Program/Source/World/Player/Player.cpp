@@ -1,4 +1,5 @@
 #include "World/Player/Player.h"
+#include "Helpers/Config.h"
 
 void Player::UpdatePlayer(double deltaTime) {
 	
@@ -6,7 +7,7 @@ void Player::UpdatePlayer(double deltaTime) {
 
 
 void Player::ApplyInput(const PlayerInputState& input, double deltaTime) {
-	float cameraSpeed = input.isSprinting ? 75.0f : 15.0f;
+	float cameraSpeed = input.isSprinting ? Config::Get().playerSprintSpeed : Config::Get().playerSpeed;
 	float velocity = cameraSpeed * (float)deltaTime;
 
 	if (input.moveForward)  Move(PlayerMovement::FORWARD, velocity);

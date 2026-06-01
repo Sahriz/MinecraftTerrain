@@ -40,13 +40,13 @@ void main(){
 			distanceToAirMap[index] = uint16_t(0);
 			return;
 	}
+	distanceToAirMap[index] = uint16_t(uint(height) - yPos);
+
 	for(uint i = 1; yPos + i < uint(height); i++){
 		uint checkY = yPos + i;
-		// Stop if we hit the top of the world
-        if (checkY >= uint(height)){ distanceToAirMap[index] = uint16_t(0); break;}
 		if(!IsSolid(int(xPos), int(checkY), int(zPos))) {
-            distanceToAirMap[index] = uint16_t(i);
-            break;
-        }
+			distanceToAirMap[index] = uint16_t(i);
+			break;
+		}
 	}
 }

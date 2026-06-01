@@ -11,10 +11,13 @@
 #include <cstdint>
 
 #include "World/Chunks/ChunkBlockManager.h"
+#include "Helpers/Config.h"
 
 class World {
 public:
-	World(){}
+	World(){
+		_viewDistance = Config::Get().viewDistance;
+	}
 
 	// The render thread pushes GPU->CPU block readbacks here; we drain them in Tick.
 	void SetBlockDataQueue(BlockDataQueue* queue) { _blockDataQueue = queue; }
@@ -34,6 +37,7 @@ public:
 	}
 
 	PlayerTransform GetPlayerTransform() const {
+		std::lock_guard<std::mutex> lock(_playerMutex);
 		return _player.GetTransform();
 	}
 
@@ -47,6 +51,7 @@ private:
 	ChunkBlockManager _chunkBlockManager;
 	PlayerInputState _inputSnapshot;
 	std::mutex _inputMutex;
+	mutable std::mutex _playerMutex;
 
 	BlockDataQueue* _blockDataQueue = nullptr; // owned by App; null until wired
 

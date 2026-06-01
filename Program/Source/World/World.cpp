@@ -7,17 +7,22 @@ void World::Tick(float deltaTime) {
 		input = _inputSnapshot;
 	}
 
-	if (input.flyMode) {
-		// Free-fly: existing camera-style movement plus look. Reset velocity so that
-		// toggling back into physics resumes from rest, not a stale fall.
-		_player.ApplyInput(input, deltaTime);
-		_player.SetVelocity(glm::vec3(0.0f));
-	} else {
-		// Walking physics: mouse still looks, but translation comes from Physics::Step.
-		_player.Rotate(input.mouseDeltaX, input.mouseDeltaY);
-		_physics.Step(_player, _chunkBlockManager, input, deltaTime);
+	glm::vec3 playerPos;
+	{
+		std::lock_guard<std::mutex> lock(_playerMutex);
+		if (input.flyMode) {
+			// Free-fly: existing camera-style movement plus look. Reset velocity so that
+			// toggling back into physics resumes from rest, not a stale fall.
+			_player.ApplyInput(input, deltaTime);
+			_player.SetVelocity(glm::vec3(0.0f));
+		} else {
+			// Walking physics: mouse still looks, but translation comes from Physics::Step.
+			_player.Rotate(input.mouseDeltaX, input.mouseDeltaY);
+			_physics.Step(_player, _chunkBlockManager, input, deltaTime);
+		}
+		_player.UpdatePlayer(deltaTime);
+		playerPos = _player.GetPosition();
 	}
-	_player.UpdatePlayer(deltaTime);
 
 	// Pull in any block data the render thread finished reading back, then let
 	// UpdateActiveWindow evict whatever is now out of range (authoritative this tick).
@@ -27,5 +32,5 @@ void World::Tick(float deltaTime) {
 		});
 	}
 
-	_chunkBlockManager.UpdateActiveWindow(_player.GetPosition(), _viewDistance);
+	_chunkBlockManager.UpdateActiveWindow(playerPos, _viewDistance);
 }

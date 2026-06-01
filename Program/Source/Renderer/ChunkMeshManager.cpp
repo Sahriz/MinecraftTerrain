@@ -62,6 +62,192 @@ ChunkMeshManager::ChunkMeshManager() {
 	std::cout << "[ChunkPool] allocated " << _waterPools.size() << " WATER tiers, "
 	          << waterSlots << " slots total, ~"
 	          << (waterBytes / (1024.0 * 1024.0)) << " MiB of arenas\n";
+
+	// Initialize the scratch & block buffer pools
+	const int maxTerrainQuads = kTiers[kTierCount - 1].bucketQuads;
+	const int maxWaterQuads   = kWaterTiers[kWaterTierCount - 1].bucketQuads;
+	InitScratchPool(maxTerrainQuads, maxWaterQuads);
+}
+
+ChunkMeshManager::~ChunkMeshManager() {
+	DestroyChunks();
+}
+
+namespace {
+	Core::ScratchMesh CreateScratchMeshInstance(int width, int height, int depth, int maxTerrainQuads, int maxWaterQuads) {
+		Core::ScratchMesh sm;
+		int totalVoxels = width * height * depth;
+
+		glGenBuffers(1, &sm.indirectBuffer);
+		uint32_t drawCmd[] = { 0, 1, 0, 0, 0 };
+		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, sm.indirectBuffer);
+		glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(drawCmd), drawCmd, GL_DYNAMIC_DRAW);
+
+		glGenBuffers(1, &sm.waterIndirectBuffer);
+		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, sm.waterIndirectBuffer);
+		glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(drawCmd), drawCmd, GL_DYNAMIC_DRAW);
+
+		glGenVertexArrays(1, &sm.vao);
+		glBindVertexArray(sm.vao);
+
+		glGenBuffers(1, &sm.stagingIndirect);
+		glBindBuffer(GL_COPY_READ_BUFFER, sm.stagingIndirect);
+		glBufferData(GL_COPY_READ_BUFFER, 16, nullptr, GL_STREAM_READ);
+
+		int lowResVoxels = (width / 2 + 1) * (height / 2 + 1) * (depth / 2 + 1);
+		glGenBuffers(1, &sm.lowResDensity_SSBO);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.lowResDensity_SSBO);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, lowResVoxels * sizeof(float), NULL, GL_DYNAMIC_COPY);
+
+		glGenBuffers(1, &sm.distanceToAirSSBO);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.distanceToAirSSBO);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(uint16_t), NULL, GL_DYNAMIC_COPY);
+
+		glGenBuffers(1, &sm.packedData_SSBO);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.packedData_SSBO);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * maxTerrainQuads * sizeof(uint32_t), NULL, GL_DYNAMIC_COPY);
+
+		glGenBuffers(1, &sm.ibo);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.ibo);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, 6 * maxTerrainQuads * sizeof(uint16_t), NULL, GL_DYNAMIC_COPY);
+
+		int initialVertex = 0;
+		glGenBuffers(1, &sm.ssboVertexCounter);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.ssboVertexCounter);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(int), &initialVertex, GL_DYNAMIC_COPY);
+
+		glBindVertexArray(sm.vao);
+		glBindBuffer(GL_ARRAY_BUFFER, sm.packedData_SSBO);
+		glVertexAttribIPointer(0, 1, GL_UNSIGNED_INT, sizeof(uint32_t), (void*)0);
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sm.ibo);
+		glBindVertexArray(0);
+
+		glGenBuffers(1, &sm.waterPackedData_SSBO);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.waterPackedData_SSBO);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * maxWaterQuads * sizeof(uint32_t), NULL, GL_DYNAMIC_COPY);
+
+		glGenBuffers(1, &sm.waterIbo);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.waterIbo);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, 6 * maxWaterQuads * sizeof(uint16_t), NULL, GL_DYNAMIC_COPY);
+
+		glGenBuffers(1, &sm.waterVertexCounter);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.waterVertexCounter);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(int), &initialVertex, GL_DYNAMIC_COPY);
+
+		glGenBuffers(1, &sm.activeVoxelCounter);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.activeVoxelCounter);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
+
+		glGenBuffers(1, &sm.activeVoxelList);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.activeVoxelList);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(uint32_t), nullptr, GL_STATIC_DRAW);
+
+		glGenBuffers(1, &sm.waterActiveVoxelCounter);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.waterActiveVoxelCounter);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
+
+		glGenBuffers(1, &sm.waterActiveVoxelList);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, sm.waterActiveVoxelList);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(uint32_t), nullptr, GL_STATIC_DRAW);
+
+		return sm;
+	}
+
+	void DestroyScratchMeshInstance(Core::ScratchMesh& sm) {
+		if (sm.vao) glDeleteVertexArrays(1, &sm.vao);
+		if (sm.ibo) glDeleteBuffers(1, &sm.ibo);
+		if (sm.packedData_SSBO) glDeleteBuffers(1, &sm.packedData_SSBO);
+		if (sm.waterPackedData_SSBO) glDeleteBuffers(1, &sm.waterPackedData_SSBO);
+		if (sm.waterIbo) glDeleteBuffers(1, &sm.waterIbo);
+		if (sm.waterVertexCounter) glDeleteBuffers(1, &sm.waterVertexCounter);
+		if (sm.waterIndirectBuffer) glDeleteBuffers(1, &sm.waterIndirectBuffer);
+		if (sm.lowResDensity_SSBO) glDeleteBuffers(1, &sm.lowResDensity_SSBO);
+		if (sm.distanceToAirSSBO) glDeleteBuffers(1, &sm.distanceToAirSSBO);
+		if (sm.indirectBuffer) glDeleteBuffers(1, &sm.indirectBuffer);
+		if (sm.ssboVertexCounter) glDeleteBuffers(1, &sm.ssboVertexCounter);
+		if (sm.activeVoxelCounter) glDeleteBuffers(1, &sm.activeVoxelCounter);
+		if (sm.activeVoxelList) glDeleteBuffers(1, &sm.activeVoxelList);
+		if (sm.waterActiveVoxelCounter) glDeleteBuffers(1, &sm.waterActiveVoxelCounter);
+		if (sm.waterActiveVoxelList) glDeleteBuffers(1, &sm.waterActiveVoxelList);
+		if (sm.stagingIndirect) glDeleteBuffers(1, &sm.stagingIndirect);
+	}
+}
+
+void ChunkMeshManager::InitScratchPool(int maxTerrainQuads, int maxWaterQuads) {
+	const int poolSize = 32;
+	_scratchPool.reserve(poolSize);
+	_freeScratchSlots.reserve(poolSize);
+	
+	const int paddedW = _width + 2;
+	const int paddedH = _height + 2;
+	const int paddedD = _depth + 2;
+
+	for (int i = 0; i < poolSize; ++i) {
+		_scratchPool.push_back(CreateScratchMeshInstance(paddedW, paddedH, paddedD, maxTerrainQuads, maxWaterQuads));
+		_freeScratchSlots.push_back(i);
+	}
+
+	const int totalVoxels = paddedW * paddedH * paddedD;
+	_blockBufferPool.reserve(poolSize);
+	_freeBlockBuffers.reserve(poolSize);
+	for (int i = 0; i < poolSize; ++i) {
+		GLuint buf = 0;
+		glGenBuffers(1, &buf);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, totalVoxels * sizeof(uint16_t), NULL, GL_DYNAMIC_COPY);
+		_blockBufferPool.push_back(buf);
+		_freeBlockBuffers.push_back(buf);
+	}
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	std::cout << "[ScratchPool] pre-allocated " << poolSize << " scratch sets and block buffers\n";
+}
+
+void ChunkMeshManager::DestroyScratchPool() {
+	for (auto& sm : _scratchPool) {
+		DestroyScratchMeshInstance(sm);
+	}
+	_scratchPool.clear();
+	_freeScratchSlots.clear();
+
+	for (GLuint buf : _blockBufferPool) {
+		if (buf) glDeleteBuffers(1, &buf);
+	}
+	_blockBufferPool.clear();
+	_freeBlockBuffers.clear();
+}
+
+int ChunkMeshManager::ClaimScratchSlot() {
+	if (_freeScratchSlots.empty()) return -1;
+	int slot = _freeScratchSlots.back();
+	_freeScratchSlots.pop_back();
+	return slot;
+}
+
+void ChunkMeshManager::ReturnScratchSlot(int slot) {
+	_freeScratchSlots.push_back(slot);
+}
+
+GLuint ChunkMeshManager::ClaimBlockBuffer() {
+	if (_freeBlockBuffers.empty()) {
+		GLuint buf = 0;
+		glGenBuffers(1, &buf);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
+		const int paddedW = _width + 2;
+		const int paddedH = _height + 2;
+		const int paddedD = _depth + 2;
+		glBufferData(GL_SHADER_STORAGE_BUFFER, paddedW * paddedH * paddedD * sizeof(uint16_t), NULL, GL_DYNAMIC_COPY);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+		_blockBufferPool.push_back(buf);
+		return buf;
+	}
+	GLuint buf = _freeBlockBuffers.back();
+	_freeBlockBuffers.pop_back();
+	return buf;
+}
+
+void ChunkMeshManager::ReturnBlockBuffer(GLuint buffer) {
+	_freeBlockBuffers.push_back(buffer);
 }
 
 void ChunkMeshManager::Update(const std::vector<glm::vec2>& activeChunks) {
@@ -195,8 +381,6 @@ ChunkResident ChunkMeshManager::MigrateToPool(Core::VoxelCubeMesh& mesh) {
 }
 
 void ChunkMeshManager::GenerateChunks(const std::vector<glm::vec2>& activeChunks) {
-	// Size the geometry scratch to the largest a pool slot can hold. kTiers/kWaterTiers
-	// list buckets smallest-first, so the last entry is the biggest.
 	const int maxTerrainQuads = kTiers[kTierCount - 1].bucketQuads;
 	const int maxWaterQuads   = kWaterTiers[kWaterTierCount - 1].bucketQuads;
 
@@ -206,18 +390,25 @@ void ChunkMeshManager::GenerateChunks(const std::vector<glm::vec2>& activeChunks
 		if (_chunkMap.find(coord) != _chunkMap.end()) continue;
 		if (_pendingGenCoords.find(coord) != _pendingGenCoords.end()) continue;
 
+		// Claim scratch buffers from the pool.
+		int scratchSlot = ClaimScratchSlot();
+		if (scratchSlot < 0) {
+			break; // Out of scratch slots; throttle generation this frame
+		}
+		GLuint blockSSBO = ClaimBlockBuffer();
+
 		glm::vec2 offset = coord * glm::vec2(_width, _depth);
 
-		// Issue all of this chunk's GPU work. With no count pre-pass and no readback,
-		// this returns without ever waiting on the GPU.
+		// Issue all of this chunk's GPU work.
 		std::unique_ptr<Core::VoxelCubeMesh> voxelData = Core::CreateVoxelCubes3DMesh(
 			_width, _height, _depth, offset, false,
+			blockSSBO, _scratchPool[scratchSlot],
 			_amplitude, _frequency, _persistance, _lacunarity, _octave, true,
 			maxTerrainQuads, maxWaterQuads);
+		voxelData->scratchSlot = scratchSlot;
 
 		// Block IDs are already written, so start the physics readback now (it takes
-		// ownership of blockID_SSBO and drops its own fence). Done for every chunk -
-		// one with no visible faces still has solid blocks.
+		// ownership of blockID_SSBO and drops its own fence). Done for every chunk.
 		EnqueueBlockReadback(coord, *voxelData);
 
 		// Fence the geometry writes and stash the mesh; PollGenerations() migrates it
@@ -325,6 +516,10 @@ void ChunkMeshManager::PollCleanups() {
 		}
 
 		if (it->fence) glDeleteSync(it->fence);
+		// Return scratch slot back to the pool!
+		if (it->mesh && it->mesh->scratchSlot >= 0) {
+			ReturnScratchSlot(it->mesh->scratchSlot);
+		}
 		it = _pendingCleanups.erase(it); // mesh unique_ptr finally frees the GPU buffers
 	}
 }
@@ -371,7 +566,34 @@ void ChunkMeshManager::PollReadbacks() {
 		_blockSink->Push(it->coord, std::move(interior));
 
 		glDeleteSync(it->fence);
-		glDeleteBuffers(1, &it->blockSSBO); // done with the block buffer; free it now
+		ReturnBlockBuffer(it->blockSSBO); // Return block ID buffer to the pool!
 		it = _pendingReadbacks.erase(it);
 	}
+}
+
+void ChunkMeshManager::DestroyChunks() {
+	_chunkMap.clear();
+	_pools.clear();      // free pool arenas/VAOs while the GL context is still current
+	_waterPools.clear(); // same for the transparent water pools
+
+	// Free the owned block buffers and outstanding fences while the context is current.
+	for (PendingReadback& pr : _pendingReadbacks) {
+		if (pr.fence) glDeleteSync(pr.fence);
+		if (pr.blockSSBO) glDeleteBuffers(1, &pr.blockSSBO);
+	}
+	_pendingReadbacks.clear();
+
+	// Drop in-flight generations too; the unique_ptr meshes free their GPU buffers.
+	for (PendingGeneration& pg : _pendingGenerations) {
+		if (pg.fence) glDeleteSync(pg.fence);
+	}
+	_pendingGenerations.clear();
+	_pendingGenCoords.clear();
+
+	for (PendingCleanup& pc : _pendingCleanups) {
+		if (pc.fence) glDeleteSync(pc.fence);
+	}
+	_pendingCleanups.clear();
+
+	DestroyScratchPool();
 }

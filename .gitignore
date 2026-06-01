@@ -80,3 +80,10 @@ Thumbs.db
 
 # Log files
 *.log
+
+# AI/Agentic Assistant configuration and logs
+.antigravitycli/
+.gemini/
+.cursor/
+.cursorrules
+.copilot/
