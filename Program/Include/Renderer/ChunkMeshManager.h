@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <memory>
 #include <cstdint>
 #include <glm.hpp>
 
@@ -52,6 +53,11 @@ public:
 	// hand off the ones whose GPU copy has finished. Render thread only.
 	void PollReadbacks();
 
+	// Finish chunk generations whose fence has signaled: read the actual quad counts
+	// (no stall, the fence guarantees the GPU is done) and migrate the geometry into
+	// pool slots. Render thread only.
+	void PollGenerations();
+
 	void DestroyChunks() {
 		_chunkMap.clear();
 		_pools.clear();      // free pool arenas/VAOs while the GL context is still current
@@ -63,6 +69,13 @@ public:
 			if (pr.blockSSBO) glDeleteBuffers(1, &pr.blockSSBO);
 		}
 		_pendingReadbacks.clear();
+
+		// Drop in-flight generations too; the unique_ptr meshes free their GPU buffers.
+		for (PendingGeneration& pg : _pendingGenerations) {
+			if (pg.fence) glDeleteSync(pg.fence);
+		}
+		_pendingGenerations.clear();
+		_pendingGenCoords.clear();
 	}
 
 	glm::vec2 GetChunkCoordFromPosition(const glm::vec3& position) const {
@@ -113,6 +126,15 @@ private:
 		GLsync    fence     = nullptr;
 	};
 
+	// A chunk whose GPU geometry has been issued but not yet copied into a pool slot.
+	// We hold the whole mesh (its packed/index buffers + vertex counters) until `fence`
+	// signals, then read the counts and migrate. Keeps generation off the stall path.
+	struct PendingGeneration {
+		glm::vec2 coord;
+		std::unique_ptr<Core::VoxelCubeMesh> mesh;
+		GLsync fence = nullptr;
+	};
+
 	std::unordered_map<ChunkCoord, ChunkResident> _chunkMap;
 	std::vector<ChunkPool> _pools;        // segregated fixed-bucket terrain geometry pools
 	std::vector<ChunkPool> _waterPools;   // parallel, smaller pools for transparent water geometry
@@ -121,6 +143,9 @@ private:
 
 	BlockDataQueue* _blockSink = nullptr;        // where finished readbacks go (App owns it)
 	std::vector<PendingReadback> _pendingReadbacks; // block buffers in flight, awaiting their fence
+
+	std::vector<PendingGeneration> _pendingGenerations; // chunks generated, awaiting fence + migration
+	std::unordered_set<ChunkCoord> _pendingGenCoords;   // coords mid-generation, so we don't re-kick them
 
 	float _scale = 0.1f;
 	float _amplitude = 1.0f;

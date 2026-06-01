@@ -69,7 +69,9 @@ void ChunkMeshManager::Update(const std::vector<glm::vec2>& activeChunks) {
 	// chunks we are about to generate.
 	PruneChunks(activeChunks);
 	GenerateChunks(activeChunks);
-	// Finish any block readbacks whose GPU copy completed; never blocks.
+	// Migrate chunks whose generation fence has signaled, then finish any block
+	// readbacks whose GPU copy completed. Neither blocks.
+	PollGenerations();
 	PollReadbacks();
 }
 
@@ -88,6 +90,18 @@ void ChunkMeshManager::PruneChunks(const std::vector<glm::vec2>& activeChunks) {
 			++it;
 		}
 	}
+
+	// Cancel in-flight generations that left the window before they finished, so we
+	// never migrate a chunk we no longer want into a pool slot.
+	for (auto it = _pendingGenerations.begin(); it != _pendingGenerations.end(); ) {
+		if (stillActive.find(it->coord) == stillActive.end()) {
+			if (it->fence) glDeleteSync(it->fence);
+			_pendingGenCoords.erase(it->coord);
+			it = _pendingGenerations.erase(it); // mesh unique_ptr frees its GPU buffers
+		} else {
+			++it;
+		}
+	}
 }
 
 // Copy a freshly-generated chunk's geometry from its private GPU buffers into a
@@ -96,8 +110,8 @@ void ChunkMeshManager::PruneChunks(const std::vector<glm::vec2>& activeChunks) {
 ChunkResident ChunkMeshManager::MigrateToPool(Core::VoxelCubeMesh& mesh) {
 	ChunkResident resident;
 	resident.offset = mesh.offset;
-	resident.quadCount = mesh.maxQuards;          // exact terrain quad count
-	resident.waterQuadCount = mesh.maxWaterQuads; // exact water quad count (0 for dry chunks)
+	resident.quadCount = mesh.maxQuards;          // actual terrain quads (set from the GPU counter)
+	resident.waterQuadCount = mesh.maxWaterQuads; // actual water quads, 0 for dry chunks
 
 	// The geometry shaders wrote these buffers incoherently; this barrier makes those
 	// writes visible to the GPU->GPU copies below (their own barriers omitted the
@@ -180,25 +194,83 @@ ChunkResident ChunkMeshManager::MigrateToPool(Core::VoxelCubeMesh& mesh) {
 }
 
 void ChunkMeshManager::GenerateChunks(const std::vector<glm::vec2>& activeChunks) {
+	// Size the geometry scratch to the largest a pool slot can hold. kTiers/kWaterTiers
+	// list buckets smallest-first, so the last entry is the biggest.
+	const int maxTerrainQuads = kTiers[kTierCount - 1].bucketQuads;
+	const int maxWaterQuads   = kWaterTiers[kWaterTierCount - 1].bucketQuads;
+
 	int numOfGen = 0;
 	for (const auto& coord : activeChunks) {
-		// Generate if not yet stored
-		if (_chunkMap.find(coord) == _chunkMap.end()) {
-			glm::vec2 offset = coord * glm::vec2(_width, _depth);
+		// Skip chunks already resident or already mid-generation (fence not yet ready).
+		if (_chunkMap.find(coord) != _chunkMap.end()) continue;
+		if (_pendingGenCoords.find(coord) != _pendingGenCoords.end()) continue;
 
-			std::unique_ptr<Core::VoxelCubeMesh> voxelData = Core::CreateVoxelCubes3DMesh(_width, _height, _depth, offset, false, _amplitude, _frequency, _persistance, _lacunarity, _octave, true);
-			// Copy the geometry into a pool slot, then let voxelData die at the
-			// end of this iteration so its per-chunk GPU buffers are reclaimed.
-			_chunkMap[coord] = MigrateToPool(*voxelData);
+		glm::vec2 offset = coord * glm::vec2(_width, _depth);
 
-			// Start reading this chunk's block IDs back to the CPU for physics, while
-			// voxelData (and its blockID_SSBO) is still alive. Done for every chunk -
-			// one with no visible faces still has solid blocks.
-			EnqueueBlockReadback(coord, *voxelData);
+		// Issue all of this chunk's GPU work. With no count pre-pass and no readback,
+		// this returns without ever waiting on the GPU.
+		std::unique_ptr<Core::VoxelCubeMesh> voxelData = Core::CreateVoxelCubes3DMesh(
+			_width, _height, _depth, offset, false,
+			_amplitude, _frequency, _persistance, _lacunarity, _octave, true,
+			maxTerrainQuads, maxWaterQuads);
 
-			numOfGen++;
-			if (numOfGen >= 15) break; // Limit generation per frame to maintain FPS
+		// Block IDs are already written, so start the physics readback now (it takes
+		// ownership of blockID_SSBO and drops its own fence). Done for every chunk -
+		// one with no visible faces still has solid blocks.
+		EnqueueBlockReadback(coord, *voxelData);
+
+		// Fence the geometry writes and stash the mesh; PollGenerations() migrates it
+		// into a pool slot once the fence signals.
+		GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+		_pendingGenCoords.insert(coord);
+		_pendingGenerations.push_back({ coord, std::move(voxelData), fence });
+
+		numOfGen++;
+		if (numOfGen >= 15) break; // cap kickoffs per frame to keep the frame moving
+	}
+}
+
+void ChunkMeshManager::PollGenerations() {
+	if (_pendingGenerations.empty()) return;
+
+	// verts / 4 = quads. The fence guarantees the GPU finished writing, so this read
+	// doesn't stall. Clamp to the scratch capacity in case a pathological chunk overran
+	// it (GeometryInit dropped the overflow faces).
+	auto readQuads = [](GLuint counter, int capacity) -> int {
+		if (counter == 0) return 0;
+		int verts = 0;
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, counter);
+		glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(int), &verts);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+		int quads = verts / 4;
+		if (quads < 0) quads = 0;
+		if (quads > capacity) quads = capacity;
+		return quads;
+	};
+
+	for (auto it = _pendingGenerations.begin(); it != _pendingGenerations.end(); ) {
+		// FLUSH_COMMANDS_BIT pushes the work to the GPU on the first poll (an unflushed
+		// fence can sit unsignaled forever); timeout 0 still never blocks.
+		const GLenum status = glClientWaitSync(it->fence, GL_SYNC_FLUSH_COMMANDS_BIT, 0);
+		if (status != GL_ALREADY_SIGNALED && status != GL_CONDITION_SATISFIED) {
+			++it; // still generating; check again next frame
+			continue;
 		}
+
+		Core::VoxelCubeMesh& mesh = *it->mesh;
+
+		// maxQuards/maxWaterQuads currently hold the scratch capacity; replace them with
+		// the actual counts the GPU wrote, which is what MigrateToPool copies.
+		const int capTerrain = mesh.maxQuards;
+		const int capWater   = mesh.maxWaterQuads;
+		mesh.maxQuards     = readQuads(mesh.ssboVertexCounter,  capTerrain);
+		mesh.maxWaterQuads = readQuads(mesh.waterVertexCounter, capWater);
+
+		_chunkMap[it->coord] = MigrateToPool(mesh);
+
+		glDeleteSync(it->fence);
+		_pendingGenCoords.erase(it->coord);
+		it = _pendingGenerations.erase(it); // mesh dies here, freeing its buffers
 	}
 }
 

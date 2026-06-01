@@ -26,18 +26,11 @@ namespace Core {
 			glGenBuffers(1, &dataSSBO);
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, dataSSBO);
 			glBufferData(GL_SHADER_STORAGE_BUFFER, maxCapacity * sizeof(uint32_t), nullptr, GL_STATIC_DRAW);
-
-			// Holds {numGroupsX, 1, 1} written by VoxelCubesQuadCount so VoxelCubesGeometryInit
-			// can call glDispatchComputeIndirect without reading activeCount back to the CPU.
-			glGenBuffers(1, &dispatchIndirect);
-			glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchIndirect);
-			glBufferData(GL_DISPATCH_INDIRECT_BUFFER, 3 * sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
 		}
 
 		~AppendBuffer() {
 			if (counterSSBO)     glDeleteBuffers(1, &counterSSBO);
 			if (dataSSBO)        glDeleteBuffers(1, &dataSSBO);
-			if (dispatchIndirect) glDeleteBuffers(1, &dispatchIndirect);
 		}
 
 		AppendBuffer(const AppendBuffer&) = delete;
@@ -45,21 +38,24 @@ namespace Core {
 
 		AppendBuffer(AppendBuffer&& other) noexcept
 			: counterSSBO(other.counterSSBO), dataSSBO(other.dataSSBO),
-			  dispatchIndirect(other.dispatchIndirect), maxCapacity(other.maxCapacity) {
+			  maxCapacity(other.maxCapacity) {
 			other.counterSSBO     = 0;
 			other.dataSSBO        = 0;
-			other.dispatchIndirect = 0;
 			other.maxCapacity     = 0;
 		}
 
 		GLuint getCounterSSBO()      const { return counterSSBO; }
 		GLuint getDataSSBO()         const { return dataSSBO; }
-		GLuint getDispatchIndirect() const { return dispatchIndirect; }
+
+		// Hand the active-voxel buffers off to the mesh, which keeps them alive until the
+		// deferred geometry fence signals. Zeroing our handle stops ~AppendBuffer from
+		// freeing a buffer the in-flight geometry pass is still reading.
+		GLuint releaseCounterSSBO() { GLuint h = counterSSBO; counterSSBO = 0; return h; }
+		GLuint releaseDataSSBO()    { GLuint h = dataSSBO;    dataSSBO    = 0; return h; }
 
 	private:
 		GLuint counterSSBO;
 		GLuint dataSSBO;
-		GLuint dispatchIndirect;
 		int maxCapacity;
 	};
 
@@ -86,6 +82,13 @@ namespace Core {
 		// blockID_SSBO holds the full-res uint16_t block IDs written by the interpolation pass.
 		GLuint lowResDensity_SSBO = 0, blockID_SSBO = 0, distanceToAirSSBO = 0, indirectBuffer = 0, densitySSBO = 0;
 		GLuint ssboVertexCounter = 0;
+		// Active-voxel lists (land + water): the GeometryInit compute pass reads these as
+		// inputs (binding 5 = count, binding 6 = list) on a deferred, fenced timeline. The
+		// mesh owns them so they outlive the local AppendBuffers in CreateVoxelCubes3DMesh
+		// and are freed only when the mesh dies after migration (post-fence) -- never out
+		// from under an in-flight geometry pass.
+		GLuint activeVoxelCounter = 0, activeVoxelList = 0;
+		GLuint waterActiveVoxelCounter = 0, waterActiveVoxelList = 0;
 		GLuint stagingVBO = 0, stagingIBO = 0, stagingIndirect = 0;
 		GLsync syncObj = nullptr;
 
@@ -122,6 +125,10 @@ namespace Core {
 				distanceToAirSSBO = other.distanceToAirSSBO;
 				densitySSBO = other.densitySSBO;
 				ssboVertexCounter = other.ssboVertexCounter;
+				activeVoxelCounter = other.activeVoxelCounter;
+				activeVoxelList = other.activeVoxelList;
+				waterActiveVoxelCounter = other.waterActiveVoxelCounter;
+				waterActiveVoxelList = other.waterActiveVoxelList;
 				stagingVBO = other.stagingVBO;
 				stagingIBO = other.stagingIBO;
 				stagingIndirect = other.stagingIndirect;
@@ -145,6 +152,10 @@ namespace Core {
 				other.distanceToAirSSBO = 0;
 				other.densitySSBO = 0;
 				other.ssboVertexCounter = 0;
+				other.activeVoxelCounter = 0;
+				other.activeVoxelList = 0;
+				other.waterActiveVoxelCounter = 0;
+				other.waterActiveVoxelList = 0;
 				other.stagingVBO = 0;
 				other.stagingIBO = 0;
 				other.stagingIndirect = 0;
@@ -178,11 +189,16 @@ namespace Core {
 			if (stagingVBO) glDeleteBuffers(1, &stagingVBO);
 			if (stagingIBO) glDeleteBuffers(1, &stagingIBO);
 			if (ssboVertexCounter) glDeleteBuffers(1, &ssboVertexCounter);
+			if (activeVoxelCounter) glDeleteBuffers(1, &activeVoxelCounter);
+			if (activeVoxelList) glDeleteBuffers(1, &activeVoxelList);
+			if (waterActiveVoxelCounter) glDeleteBuffers(1, &waterActiveVoxelCounter);
+			if (waterActiveVoxelList) glDeleteBuffers(1, &waterActiveVoxelList);
 			if (stagingIndirect) glDeleteBuffers(1, &stagingIndirect);
 			if (syncObj) glDeleteSync(syncObj);
 
 			vao = ibo = packedData_SSBO = lowResDensity_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = ssboVertexCounter = stagingIndirect = 0;
 			waterPackedData_SSBO = waterIbo = waterVertexCounter = waterIndirectBuffer = 0;
+			activeVoxelCounter = activeVoxelList = waterActiveVoxelCounter = waterActiveVoxelList = 0;
 			maxWaterQuads = 0;
 			offset = glm::vec2(0);
 			syncObj = nullptr;
@@ -195,7 +211,6 @@ namespace Core {
 	extern GLuint _noiseInterpolationComputeShader; // Trilinearly interpolates density into full-res blockID_SSBO
 	extern GLuint _distanceToAirComputeShader;
 	extern GLuint _voxelCubesGeometryInitComputeShader;
-	extern GLuint _voxelCubesTriangleCounterComputeShader;
 	extern GLuint _voxelTerrainPainterComputeShader;
 	extern GLuint _voxelCubesSurfaceCullingComputeShader;
 
@@ -219,10 +234,6 @@ namespace Core {
 	extern GLint _paintWidthLoc;
 	extern GLint _paintHeightLoc;
 	extern GLint _paintDepthLoc;
-
-	extern GLint _countWidthLoc;
-	extern GLint _countHeightLoc;
-	extern GLint _countDepthLoc;
 
 	extern GLint _geomWidthLoc;
 	extern GLint _geomHeightLoc;
@@ -253,9 +264,11 @@ namespace Core {
 	// One culling sweep fills two surface lists: land (ab) and water (abWater).
 	void PerformVoxelCubesSurfaceCulling(VoxelCubeMesh& mesh, AppendBuffer& ab, AppendBuffer& abWater, int width, int height, int depth, float isoLevel);
 	// meshMode 0 = terrain (faces vs air OR water), 1 = water (faces vs air only).
-	int VoxelCubesQuadCount(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, bool CleanUp, int meshMode);
 	void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp, int meshMode);
-	std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int heigth, int depth, glm::vec2 offset, bool CleanUp, const float amplitude = 1.0f, const float frequency = 1.0f, const float persistance = 0.5f, const float lacunarity = 2.0f, const int octaves = 5, const bool useDropoff = true);
+	// maxTerrainQuads/maxWaterQuads size the geometry scratch buffers (no count pre-pass);
+	// pass the largest pool bucket so a full chunk fits. The actual quad count is read back
+	// later from the vertex counters.
+	std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int heigth, int depth, glm::vec2 offset, bool CleanUp, const float amplitude = 1.0f, const float frequency = 1.0f, const float persistance = 0.5f, const float lacunarity = 2.0f, const int octaves = 5, const bool useDropoff = true, int maxTerrainQuads = 12288, int maxWaterQuads = 8192);
 
 
 }

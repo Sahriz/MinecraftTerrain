@@ -67,7 +67,6 @@ namespace Core
 		GLuint _noiseInterpolationComputeShader = 0;
 		GLuint _distanceToAirComputeShader = 0;
 		GLuint _voxelCubesGeometryInitComputeShader = 0;
-		GLuint _voxelCubesTriangleCounterComputeShader = 0;
 		GLuint _voxelTerrainPainterComputeShader = 0;
 		GLuint _voxelCubesSurfaceCullingComputeShader = 0;
 
@@ -90,10 +89,6 @@ namespace Core
 		GLint _paintHeightLoc = 0;
 		GLint _paintDepthLoc = 0;
 
-		GLint _countWidthLoc = 0;
-		GLint _countHeightLoc = 0;
-		GLint _countDepthLoc = 0;
-
 		GLint _geomWidthLoc = 0;
 		GLint _geomHeightLoc = 0;
 		GLint _geomDepthLoc = 0;
@@ -112,7 +107,6 @@ namespace Core
 			_noiseInterpolationComputeShader = CreateComputeShaderProgram("Core/Source/InterpolateNoise.comp");
 			_distanceToAirComputeShader = CreateComputeShaderProgram("Core/Source/distanceToAir.comp");
 			_voxelCubesGeometryInitComputeShader = CreateComputeShaderProgram("Core/Source/GeometryInit.comp");
-			_voxelCubesTriangleCounterComputeShader = CreateComputeShaderProgram("Core/Source/CountTriangles.comp");
 			_voxelTerrainPainterComputeShader = CreateComputeShaderProgram("Core/Source/TerrainPainter.comp");
 			_voxelCubesSurfaceCullingComputeShader = CreateComputeShaderProgram("Core/Source/SurfaceCulling.comp");
 		}
@@ -138,10 +132,6 @@ namespace Core
 			_paintHeightLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "height");
 			_paintDepthLoc = glGetUniformLocation(_voxelTerrainPainterComputeShader, "depth");
 
-			_countWidthLoc = glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "gridWidth");
-			_countHeightLoc = glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "gridHeigth");
-			_countDepthLoc = glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "gridDepth");
-
 			_geomWidthLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "gridWidth");
 			_geomHeightLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "gridHeigth");
 			_geomDepthLoc = glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "gridDepth");
@@ -155,7 +145,6 @@ namespace Core
 			glDeleteProgram(_noiseInterpolationComputeShader);
 			glDeleteProgram(_distanceToAirComputeShader);
 			glDeleteProgram(_voxelCubesGeometryInitComputeShader);
-			glDeleteProgram(_voxelCubesTriangleCounterComputeShader);
 			glDeleteProgram(_voxelTerrainPainterComputeShader);
 			glDeleteProgram(_voxelCubesSurfaceCullingComputeShader);
 		}
@@ -363,54 +352,6 @@ namespace Core
 				GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
-		int VoxelCubesQuadCount(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, bool CleanUp, int meshMode) {
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
-
-			GLuint ssboCounter;
-			int initial = 0;
-			glGenBuffers(1, &ssboCounter);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboCounter);
-			glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(int), &initial, GL_DYNAMIC_COPY);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboCounter);
-
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.getCounterSSBO());
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ab.getDataSSBO());
-
-			glUseProgram(_voxelCubesTriangleCounterComputeShader);
-
-			glUniform1i(_countWidthLoc, width);
-			glUniform1i(_countHeightLoc, heigth);
-			glUniform1i(_countDepthLoc, depth);
-			glUniform1i(glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "meshMode"), meshMode);
-
-			uint32_t activeCount = 0;
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.getCounterSSBO());
-			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &activeCount);
-
-			GLuint geomArgs[3] = { (activeCount + 63) / 64, 1, 1 };
-			glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, ab.getDispatchIndirect());
-			glBufferSubData(GL_DISPATCH_INDIRECT_BUFFER, 0, sizeof(geomArgs), geomArgs);
-
-			if (activeCount > 0) {
-				glDispatchCompute(geomArgs[0], 1, 1);
-			}
-			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
-				GL_ELEMENT_ARRAY_BARRIER_BIT |
-				GL_COMMAND_BARRIER_BIT |
-				GL_SHADER_STORAGE_BARRIER_BIT);
-
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboCounter);
-			int* ptr = (int*)glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
-
-			int faceCount = 0;
-			if (ptr) {
-				faceCount = *ptr;
-				glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-			}
-			glDeleteBuffers(1, &ssboCounter);
-			return faceCount;
-		}
-
 		void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp, int meshMode) {
 
 			// Route geometry to the terrain or water mesh. The block-ID input and the active
@@ -438,9 +379,15 @@ namespace Core
 			glUniform1f(_geomColumnSizeLoc, 3);
 			glUniform1f(_geomRowSizeLoc, 16);
 			glUniform1i(glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "meshMode"), meshMode);
+			// quadCount here is the scratch capacity (max quads), not an exact count. The
+			// shader uses it to drop overflow faces instead of overrunning the buffer.
+			glUniform1i(glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "maxVerts"), quadCount * 4);
 
-			glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, ab.getDispatchIndirect());
-			glDispatchComputeIndirect(0);
+			// One thread per padded voxel; threads past the active-voxel count early-out.
+			// Dispatched directly (no CPU readback) now that the buffers are sized to a
+			// fixed max, so the old count pre-pass and its indirect-args buffer are unused.
+			GLuint geomGroups = (GLuint)(((long long)width * heigth * depth + 63) / 64);
+			glDispatchCompute(geomGroups, 1, 1);
 
 			glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT |
 				GL_ELEMENT_ARRAY_BARRIER_BIT |
@@ -448,7 +395,7 @@ namespace Core
 				GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
-		std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int height, int depth, glm::vec2 offset, bool CleanUp, const float amplitude, const float frequency, const float persistance, const float lacunarity, const int octaves, const bool useDropoff) {
+		std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int height, int depth, glm::vec2 offset, bool CleanUp, const float amplitude, const float frequency, const float persistance, const float lacunarity, const int octaves, const bool useDropoff, int maxTerrainQuads, int maxWaterQuads) {
 			std::unique_ptr<VoxelCubeMesh> cubeMeshData = std::make_unique<VoxelCubeMesh>();
 			cubeMeshData->gpuLoaded = true;
 			cubeMeshData->offset = offset;
@@ -485,33 +432,39 @@ namespace Core
 
 			TerrainPaint(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth);
 
+			// No count pre-pass: size the geometry scratch to the largest a pool slot can
+			// hold and let GeometryInit append straight into it. The real quad count is
+			// read back from the vertex counter later (behind a fence), so this never
+			// stalls waiting on the GPU.
+
 			// --- Terrain mesh (meshMode 0: emit a face vs air OR water) ---
-			int quadCount = VoxelCubesQuadCount(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, CleanUp, 0);
-
-			InitializeVoxelCubeMeshSize(*cubeMeshData, quadCount);
-
-			VoxelCubesGeometryInit(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, quadCount, CleanUp, 0);
+			InitializeVoxelCubeMeshSize(*cubeMeshData, maxTerrainQuads);
+			VoxelCubesGeometryInit(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, maxTerrainQuads, CleanUp, 0);
 
 			// --- Water mesh (meshMode 1: emit a face vs air only) ---
-			int waterQuadCount = VoxelCubesQuadCount(*cubeMeshData, abWater, paddedWidth, paddedHeight, paddedDepth, offset3D, CleanUp, 1);
+			InitializeWaterMeshSize(*cubeMeshData, maxWaterQuads);
+			VoxelCubesGeometryInit(*cubeMeshData, abWater, paddedWidth, paddedHeight, paddedDepth, offset3D, maxWaterQuads, CleanUp, 1);
 
-			InitializeWaterMeshSize(*cubeMeshData, waterQuadCount);
-
-			VoxelCubesGeometryInit(*cubeMeshData, abWater, paddedWidth, paddedHeight, paddedDepth, offset3D, waterQuadCount, CleanUp, 1);
+			// Hand the active-voxel lists to the mesh so they outlive this function. Both
+			// geometry passes above read them on a deferred (fenced) timeline; if the local
+			// AppendBuffers freed them at return, the GPU could read freed buffers -- this
+			// driver doesn't reliably defer buffer deletion past in-flight work -- yielding
+			// empty/garbage chunks. The mesh frees them later, after the geometry fence.
+			cubeMeshData->activeVoxelCounter      = ab.releaseCounterSSBO();
+			cubeMeshData->activeVoxelList         = ab.releaseDataSSBO();
+			cubeMeshData->waterActiveVoxelCounter = abWater.releaseCounterSSBO();
+			cubeMeshData->waterActiveVoxelList    = abWater.releaseDataSSBO();
 
 			glDeleteBuffers(1, &cubeMeshData->distanceToAirSSBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingVBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingIBO);
-			glDeleteBuffers(1, &cubeMeshData->ssboVertexCounter);
 			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);
 			glDeleteBuffers(1, &cubeMeshData->densitySSBO);
 			glDeleteBuffers(1, &cubeMeshData->lowResDensity_SSBO);
-			// The water vertex cursor is scratch and freed now; the packed/index/indirect
-			// buffers stay alive for the pool to copy out of (freed later by Release()).
-			// Zero the handle so the destructor doesn't double-free a recycled buffer name.
-			glDeleteBuffers(1, &cubeMeshData->waterVertexCounter);
-			cubeMeshData->waterVertexCounter = 0;
-			// Keep blockID_SSBO alive: the caller reads it back to the CPU for physics, then the destructor frees it.
+			// Kept alive for the deferred migration: the vertex counters (the manager reads
+			// them after a fence to learn how many quads to copy), the packed/index buffers
+			// (the pool copies out of them), and blockID_SSBO (physics readback). Release()
+			// frees them all when the mesh dies after it lands in a pool slot.
 
 			return cubeMeshData;
 		}

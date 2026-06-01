@@ -51,12 +51,12 @@ uniform vec3 offset;
 uniform float columns;
 uniform float rows;
 uniform int meshMode; // 0 = terrain (faces vs air or water), 1 = water (faces vs air only)
+uniform int maxVerts; // scratch capacity in vertices (4 * max quads); guards the buffer below
 
 
 
 // Emit a face toward neighbour (x,y,z)? Terrain shows faces against air or water,
-// water only against air. Must match CountTriangles' FaceVisible exactly, or the
-// reserved buffer space won't match what we write.
+// water only against air.
 bool FaceVisible(int x, int y, int z) {
     uint id = uint(blockIDs[x + y * gridWidth + z * gridWidth * gridHeigth]);
     if (meshMode == 1) return id == 0u;          // water: face only against air
@@ -104,6 +104,11 @@ void main(){
             // 1. Reserve 4 vertices and 6 indices
             int vStart = atomicAdd(vertexCounter, 4);
             uint iStart = atomicAdd(count, 6);
+
+            // Scratch is sized to a fixed max now (no count pre-pass). If a chunk somehow
+            // wants more than a pool slot can hold, drop the overflow faces rather than
+            // write out of bounds; the slot copy clamps to the same cap.
+            if (vStart + 4 > maxVerts) return;
 
             // 2. Define geometry (Winding order maintained)
             vec3 vert[4];
