@@ -58,6 +58,9 @@ public:
 	// pool slots. Render thread only.
 	void PollGenerations();
 
+	// Delete meshes that were held for migration/generation once the GPU is done.
+	void PollCleanups();
+
 	void DestroyChunks() {
 		_chunkMap.clear();
 		_pools.clear();      // free pool arenas/VAOs while the GL context is still current
@@ -76,6 +79,11 @@ public:
 		}
 		_pendingGenerations.clear();
 		_pendingGenCoords.clear();
+
+		for (PendingCleanup& pc : _pendingCleanups) {
+			if (pc.fence) glDeleteSync(pc.fence);
+		}
+		_pendingCleanups.clear();
 	}
 
 	glm::vec2 GetChunkCoordFromPosition(const glm::vec3& position) const {
@@ -135,6 +143,13 @@ private:
 		GLsync fence = nullptr;
 	};
 
+	// A mesh that has finished its generation or migration but whose GPU source 
+	// buffers must remain alive until the GPU has finished reading them.
+	struct PendingCleanup {
+		std::unique_ptr<Core::VoxelCubeMesh> mesh;
+		GLsync fence = nullptr;
+	};
+
 	std::unordered_map<ChunkCoord, ChunkResident> _chunkMap;
 	std::vector<ChunkPool> _pools;        // segregated fixed-bucket terrain geometry pools
 	std::vector<ChunkPool> _waterPools;   // parallel, smaller pools for transparent water geometry
@@ -146,6 +161,7 @@ private:
 
 	std::vector<PendingGeneration> _pendingGenerations; // chunks generated, awaiting fence + migration
 	std::unordered_set<ChunkCoord> _pendingGenCoords;   // coords mid-generation, so we don't re-kick them
+	std::vector<PendingCleanup>    _pendingCleanups;    // meshes whose buffers are in flight (copy/read)
 
 	float _scale = 0.1f;
 	float _amplitude = 1.0f;

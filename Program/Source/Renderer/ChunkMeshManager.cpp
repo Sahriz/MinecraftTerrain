@@ -73,6 +73,7 @@ void ChunkMeshManager::Update(const std::vector<glm::vec2>& activeChunks) {
 	// readbacks whose GPU copy completed. Neither blocks.
 	PollGenerations();
 	PollReadbacks();
+	PollCleanups();
 }
 
 void ChunkMeshManager::PruneChunks(const std::vector<glm::vec2>& activeChunks) {
@@ -91,13 +92,13 @@ void ChunkMeshManager::PruneChunks(const std::vector<glm::vec2>& activeChunks) {
 		}
 	}
 
-	// Cancel in-flight generations that left the window before they finished, so we
-	// never migrate a chunk we no longer want into a pool slot.
+	// Cancel in-flight generations that left the window before they finished. We
+	// still hold the mesh until its fence signals to avoid deleting buffers mid-GPU-work.
 	for (auto it = _pendingGenerations.begin(); it != _pendingGenerations.end(); ) {
 		if (stillActive.find(it->coord) == stillActive.end()) {
-			if (it->fence) glDeleteSync(it->fence);
+			_pendingCleanups.push_back({ std::move(it->mesh), it->fence });
 			_pendingGenCoords.erase(it->coord);
-			it = _pendingGenerations.erase(it); // mesh unique_ptr frees its GPU buffers
+			it = _pendingGenerations.erase(it);
 		} else {
 			++it;
 		}
@@ -270,7 +271,13 @@ void ChunkMeshManager::PollGenerations() {
 
 		glDeleteSync(it->fence);
 		_pendingGenCoords.erase(it->coord);
-		it = _pendingGenerations.erase(it); // mesh dies here, freeing its buffers
+
+		// The migration issued glCopyBufferSubData, which is asynchronous. We must
+		// hold the source mesh alive until a new fence signals that the copy is done.
+		GLsync migrationFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+		_pendingCleanups.push_back({ std::move(it->mesh), migrationFence });
+
+		it = _pendingGenerations.erase(it);
 	}
 }
 
@@ -303,6 +310,23 @@ void ChunkMeshManager::EnqueueBlockReadback(glm::vec2 coord, Core::VoxelCubeMesh
 	// it with a zero timeout, so the render thread never waits on the GPU.
 	GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 	_pendingReadbacks.push_back({ coord, blockSSBO, fence });
+}
+
+void ChunkMeshManager::PollCleanups() {
+	if (_pendingCleanups.empty()) return;
+
+	for (auto it = _pendingCleanups.begin(); it != _pendingCleanups.end(); ) {
+		// Flush the commands (generation or migration) to the GPU on the first poll.
+		// Timeout 0 never blocks.
+		const GLenum status = glClientWaitSync(it->fence, GL_SYNC_FLUSH_COMMANDS_BIT, 0);
+		if (status != GL_ALREADY_SIGNALED && status != GL_CONDITION_SATISFIED) {
+			++it;
+			continue;
+		}
+
+		if (it->fence) glDeleteSync(it->fence);
+		it = _pendingCleanups.erase(it); // mesh unique_ptr finally frees the GPU buffers
+	}
 }
 
 void ChunkMeshManager::PollReadbacks() {

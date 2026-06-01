@@ -455,12 +455,10 @@ namespace Core
 			cubeMeshData->waterActiveVoxelCounter = abWater.releaseCounterSSBO();
 			cubeMeshData->waterActiveVoxelList    = abWater.releaseDataSSBO();
 
-			glDeleteBuffers(1, &cubeMeshData->distanceToAirSSBO);
-			glDeleteBuffers(1, &cubeMeshData->stagingVBO);
-			glDeleteBuffers(1, &cubeMeshData->stagingIBO);
-			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);
-			glDeleteBuffers(1, &cubeMeshData->densitySSBO);
-			glDeleteBuffers(1, &cubeMeshData->lowResDensity_SSBO);
+			// These intermediate buffers are kept alive in the mesh object so they outlive
+			// the asynchronous compute dispatches. The mesh destructor (called after the
+			// generation/migration fences signal) will free them.
+
 			// Kept alive for the deferred migration: the vertex counters (the manager reads
 			// them after a fence to learn how many quads to copy), the packed/index buffers
 			// (the pool copies out of them), and blockID_SSBO (physics readback). Release()
