@@ -115,6 +115,60 @@ float snoiseFractal(vec3 m) {
 				+0.0666667* snoise(8.0*m);
 }
 
+// Fractal Brownian motion: sum octaves at doubling frequency, halving amplitude.
+// Normalized back to ~[-1, 1].
+float fbm2D(vec2 p, int octaves) {
+	float sum   = 0.0;
+	float amp   = 1.0;
+	float total = 0.0;
+	for (int i = 0; i < octaves; i++) {
+		sum   += amp * snoise2D(p);
+		total += amp;
+		p     *= 2.0;
+		amp   *= 0.5;
+	}
+	return sum / total;
+}
+
+// Terrain splines, Minecraft-style. All control points share one array; each spline
+// is a [start, start+count) slice of (input, output) points, sorted by input (.x).
+// Edit the numbers and re-run to retune - shaders compile at runtime.
+const vec2 SPLINES[] = vec2[](
+	// Continentalness -> base surface height (world Y). Assumes Y in [0,256], sea ~90.
+	vec2(-1.2, 50.0), vec2(-0.4, 70.0), vec2(-0.1, 70.0), vec2(0.1, 82.0),
+	vec2(0.3, 92.0), vec2(0.6, 125.0), vec2(1.0, 160.0),
+	// Erosion -> flatness (0 = rough/mountainous, 1 = flat).
+	vec2(-1.0, 0.0), vec2(-0.4, 0.2), vec2(0.0, 0.5), vec2(0.4, 0.8), vec2(1.0, 1.0),
+	// Peaks & valleys -> ridge strength (~ -1..1).
+	vec2(-1.0, -0.6), vec2(-0.2, 0.0), vec2(0.2, 0.2), vec2(0.6, 0.7), vec2(1.0, 1.0)
+);
+const int CONT_START = 0,  CONT_COUNT = 7;
+const int ERO_START  = 7,  ERO_COUNT  = 5;
+const int PV_START   = 12, PV_COUNT   = 5;
+
+// Piecewise-linear lookup over SPLINES[start .. start+count). Clamps past the ends.
+float sampleCurve(float v, int start, int count) {
+	int last = start + count - 1;
+	if (v <= SPLINES[start].x) return SPLINES[start].y;
+	if (v >= SPLINES[last].x)  return SPLINES[last].y;
+	for (int i = start; i < last; i++) {
+		if (v >= SPLINES[i].x && v < SPLINES[i + 1].x) {
+			float t = (v - SPLINES[i].x) / (SPLINES[i + 1].x - SPLINES[i].x);
+			return mix(SPLINES[i].y, SPLINES[i + 1].y, t);
+		}
+	}
+	return SPLINES[last].y;
+}
+
+// Snap height into flat plateaus joined by steep faces (the basis for cliffs).
+// step = plateau spacing = cliff height. riser = climb fraction per step
+// (small = sheer faces, large = gentle ramps).
+float terrace(float h, float step, float riser) {
+	float level = floor(h / step);
+	float t     = fract(h / step);
+	return (level + smoothstep(1.0 - riser, 1.0, t)) * step;
+}
+
 void main(){
 	uint xPos = gl_GlobalInvocationID.x;
 	uint yPos = gl_GlobalInvocationID.y;
@@ -122,88 +176,49 @@ void main(){
 
 	if(xPos >= uint(width) || yPos >= uint(height) || zPos >= uint(depth)) return;
 
-	// Each low-res sample covers 2 full-res voxels (stride = 2).
-	// offset is pre-shifted by -1 so index 0 aligns to padded position -1 in world space,
-	// ensuring sample points land on odd padded positions (1, 3, ..., 17) which are
-	// shared consistently between adjacent chunks.
+	// Each low-res sample covers 2 voxels (stride 2). offset is pre-shifted by -1 so
+	// samples land on odd padded positions (1, 3, ..., 17), shared between neighbor chunks.
 	float worldX = float(int(xPos) * 2) + offset.x;
 	float worldY = float(int(yPos) * 2) + offset.y;
 	float worldZ = float(int(zPos) * 2) + offset.z;
 
 	vec2 worldPos2D = vec2(worldX, worldZ);
 
-	// Recover the effective full-res padded height for terrain scale calculations.
-	// lowResHeight = paddedHeight / 2 + 1, so paddedHeight = (lowResHeight - 1) * 2.
-	int effectiveHeight = (height - 1) * 2;
+	// --- 1. Parameters: four independent 2D noises, each roughly [-1, 1] ---
+	float C  = fbm2D(worldPos2D * 0.00025, 2); // continentalness: ocean <-> inland
+	float E  = fbm2D(worldPos2D * 0.001,  4); // erosion: high = flat, low = mountainous
+	float W  = fbm2D(worldPos2D * 0.002,  4); // weirdness
+	float PV = 1.0 - abs(3.0 * abs(W) - 2.0); // peaks & valleys, derived from weirdness
 
-    float continental = snoise2D(worldPos2D * 0.0008);
-    continental = 0.63*smoothstep(-0.2, 0.5, continental);
+	// --- 2. Splines: map each parameter through its tunable curve ---
+	float baseHeight = sampleCurve(C,  CONT_START, CONT_COUNT); // target surface height (world Y)
+	float flatness   = sampleCurve(E,  ERO_START,  ERO_COUNT);  // 0 = rough, 1 = flat
+	float peak       = sampleCurve(PV, PV_START,   PV_COUNT);   // ridge strength, ~ -1..1
 
-    float erosion = snoise2D(worldPos2D*0.002);
-    erosion = -40*max(smoothstep(-0.15, 0.05, erosion), smoothstep(0.05, -0.15, erosion));
+	// --- 3. Combine into a height offset and vertical squash factor ---
+	// Erosion suppresses peaks and raises the squash factor, so flat biomes stay flat.
+	float offsetH = baseHeight + peak * 60.0 * (1.0 - flatness);
+	float factor  = mix(0.12, 0.30, flatness); // stronger downward pull, even in mountains
 
-    float continentalBackwards = max(0.0, 0.63-continental);
+	// Cliffs: a low-freq mask picks out "cliff regions" where the surface snaps into
+	// plateaus. Gated by (1-flatness) so plains stay smooth. step = cliff height;
+	// the smoothstep thresholds set how common cliffs are; 0.0015 sets their size.
+	float cliffMask = smoothstep(0.5, 0.7, fbm2D(worldPos2D * 0.0015, 3)) * (1.0 - flatness);
+	float terraced  = terrace(offsetH, 30.0, 0.08);
+	offsetH         = mix(offsetH, terraced, cliffMask);
 
-    float mountainDetail = 0.0;
-    float f = 0.002;
-    float a = 1.0;
-    for(int i = 0; i < 5; i++) {
-        float n = snoise2D(worldPos2D * f);
-        mountainDetail += (1.0 - abs(n)) * a;
-        f *= 2.0;
-        a *= 0.5;
-    }
+	// --- 4. Density: vertical gradient (shaped by factor) plus 3D detail ---
+	// Surface = where density crosses zero. 3D detail bumps it; two clamps keep it sane:
+	//   roughness - floors flat ground so it isn't dead smooth, caps tall terrain.
+	//   taper     - detail fades to zero ~45 blocks from the surface, so nothing
+	//               floats or punches a hole down to the void.
+	float density = (offsetH - worldY) * factor;
+	float detail  = snoiseFractal(vec3(worldX, worldY, worldZ) * 0.01);
 
-	float surfaceHeight = 0.0;
-    float f2D = 0.0005;
-    float a2D = 1.0;
-    float totalAmplitude = 0.0;
+	float roughness = mix(0.15, 1.0, 1.0 - flatness) * mix(1.0, 0.25, cliffMask); // ease off in cliff regions to keep faces crisp
+	float taper     = clamp(1.0 - abs(worldY - offsetH) / 45.0, 0.0, 1.0);
+	density += detail * 10.0 * roughness * taper;
 
-	for(int i = 0; i < 4; i++) {
-        surfaceHeight += a2D * snoise2D(worldPos2D * f2D);
-        totalAmplitude += a2D;
-        f2D *= 2.0;
-        a2D *= 0.5;
-    }
-
-    surfaceHeight = (surfaceHeight / totalAmplitude) * 0.5 + 0.5;
-
-    float erosionVariation = erosion * (max(0.0, continentalBackwards - 0.0));
-	float finalTerrainHeight = (effectiveHeight * 0.2) + (mountainDetail * (effectiveHeight * 0.6) * continental) - erosionVariation;
-
-    float density = finalTerrainHeight - worldY;
-
-    float overhangNoise = snoise(vec3(worldX, worldY, worldZ) * 0.02) * 20.0;
-    density += overhangNoise * continental;
-
-    uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
-
-	vec3 position3D = vec3(worldX, worldY, worldZ);
-
-    float caveNoise = 0.0;
-    float f3D = 0.01;
-    float a3D = 1.0;
-
-    for(int i = 0; i < 3; i++) {
-        caveNoise += a3D * snoise(position3D * f3D);
-        f3D *= 2.0;
-        a3D *= 0.5;
-    }
-
-	float normalizedHeight = max(0.0, worldY) / max(1.0, finalTerrainHeight);
-
-    float bottomThreshold = -0.1;
-    float topThreshold = 0.6;
-    float caveThreshold = mix(bottomThreshold, topThreshold, pow(normalizedHeight, 2.0));
-
-    // Carve caves into the continuous density field instead of hard-writing a
-    // constant. How far caveNoise sits past the threshold drives a smooth 0..1
-    // strength; we blend the density toward a solidly-negative "air" value. The
-    // field stays smooth, so the interpolation pass can place cave walls anywhere
-    // between samples. The old "noiseMap = -1.0" wrote a flat, discontinuous
-    // plateau that interpolation could only resolve on the stride-2 grid.
-    float caveStrength = smoothstep(0.0, 0.2, caveNoise - caveThreshold);
-    density = mix(density, -64.0, caveStrength);
-
-    noiseMap[index] = density;
+	uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
+	noiseMap[index] = density;
 }

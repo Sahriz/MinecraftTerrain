@@ -98,10 +98,11 @@ private:
     GLint _textureUniformLoc;
     GLuint textureID;
 
-    // Per-frame scratch for the multidraw path: one command list per pool, holding
-    // just this frame's visible (frustum-passing) chunks. Kept as a member so its
-    // backing storage is reused frame to frame instead of reallocating each Render().
+    // Per-frame multidraw scratch: one command list per pool, holding this frame's
+    // visible chunks. A member so the storage is reused instead of realloc'd each frame.
     std::vector<std::vector<DrawElementsIndirectCommand>> _drawCommands;
+    // Same for the transparent water pools (second blended pass).
+    std::vector<std::vector<DrawElementsIndirectCommand>> _waterDrawCommands;
 
     void Init();
     std::string ReadFile(const std::string& filePath);

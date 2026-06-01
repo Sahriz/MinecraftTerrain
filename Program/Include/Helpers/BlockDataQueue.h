@@ -14,10 +14,9 @@ struct ChunkBlockData {
     std::vector<uint16_t> blockIDs;
 };
 
-// The decoupling seam between the render thread and the world thread. The
-// render thread only ever Push()es finished readbacks; the world thread only
-// ever Drain()s them. Neither side knows anything about the other - they share
-// only this queue, exactly like the input/active-chunk snapshots already do.
+// The seam between the render thread and the world thread: the render thread only
+// Push()es finished readbacks, the world thread only Drain()s them. They share just
+// this queue, like the input/active-chunk snapshots already do.
 class BlockDataQueue {
 public:
     void Push(glm::vec2 coord, std::vector<uint16_t>&& blockIDs) {
@@ -26,8 +25,8 @@ public:
     }
 
     // Hand every queued chunk to sink(coord, std::move(blockIDs)), then clear the
-    // backlog. The lock is held only long enough to swap the backlog out, so the
-    // (potentially slow) sink work never blocks the producing render thread.
+    // backlog. The lock is held only long enough to swap the backlog out, so slow
+    // sink work never blocks the producing render thread.
     template <typename Fn>
     void Drain(Fn&& sink) {
         std::vector<ChunkBlockData> batch;

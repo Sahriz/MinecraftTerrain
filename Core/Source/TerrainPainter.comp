@@ -51,6 +51,14 @@ void main(){
 	if(!IsSolid(x,y,z)) return;
 
 	int index = x + y * (width) + z * (width) * (height);
+
+	// Keep the bedrock floor: don't recolor the bottom layers (a hole could expose
+	// them and paint bedrock as grass). ID 4 = bedrock.
+	if (y <= 2) {
+		blockIDs[index] = uint16_t(4);
+		return;
+	}
+
 	uint dist = uint(distanceToAirMap[index]);
 	// Use a simple hash for noise if you don't have a texture
     float n = fract(sin(dot(vec2(x,z), vec2(12.9898, 45.164))) * 43758.5453);

@@ -5,21 +5,18 @@
 #include "App.h"
 
 namespace {
-	// A view frustum as 6 inward-facing planes. Each plane is (a,b,c,d): a point
-	// (x,y,z) is on the inside when a*x + b*y + c*z + d >= 0, and inside the
-	// frustum when it is inside all 6 planes at once.
+	// A view frustum as 6 inward-facing planes. Plane (a,b,c,d): point (x,y,z) is
+	// inside when a*x + b*y + c*z + d >= 0, and visible when inside all 6.
 	struct Frustum {
 		glm::vec4 planes[6];
 
-		// Conservative box test. Returns false ONLY when the box is fully on the
-		// outside of at least one plane (so it definitely cannot be seen). A box
-		// straddling an edge is kept, so we never wrongly cull something visible.
+		// Conservative box test. Returns false only when the box is fully outside
+		// some plane; a box straddling an edge is kept, so we never cull a visible one.
 		bool IsBoxVisible(const glm::vec3& mn, const glm::vec3& mx) const {
 			for (int i = 0; i < 6; ++i) {
 				const glm::vec4& p = planes[i];
-				// The "positive vertex": the box corner furthest along this
-				// plane's normal. If even that corner is outside the plane, the
-				// whole box is, so the box cannot intersect the frustum.
+				// Positive vertex: the box corner furthest along this plane's normal.
+				// If even that corner is outside, the whole box is.
 				const glm::vec3 pv(
 					p.x >= 0.0f ? mx.x : mn.x,
 					p.y >= 0.0f ? mx.y : mn.y,
@@ -31,10 +28,9 @@ namespace {
 		}
 	};
 
-	// Pull the 6 frustum planes out of a combined clip matrix (projection * view
-	// * model) with the Gribb-Hartmann method. We only need the sign of the
-	// plane test, so the planes are left un-normalized (saves 6 sqrts/frame).
-	// glm is column-major, so matrix row i is (m[0][i], m[1][i], m[2][i], m[3][i]).
+	// Extract the 6 frustum planes from a clip matrix (proj * view * model) via
+	// Gribb-Hartmann. Left un-normalized since we only need the test's sign.
+	// glm is column-major, so row i is (m[0][i], m[1][i], m[2][i], m[3][i]).
 	Frustum ExtractFrustum(const glm::mat4& m) {
 		auto row = [&](int i) { return glm::vec4(m[0][i], m[1][i], m[2][i], m[3][i]); };
 		const glm::vec4 r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
@@ -247,15 +243,14 @@ void Renderer::DrawChunks(ChunkMeshManager& chunkManager) {
 	std::unordered_map<ChunkCoord, ChunkResident>& chunkMap = chunkManager.GetChunkMap();
 	_chunkRenderer.UpdateActiveChunk(_camera.GetPosition(), chunkManager);
 
-	// Build the view frustum once per frame from the SAME transform the vertex
-	// shader uses (projM * uView * uModel). Chunks whose bounding box falls fully
-	// outside it are skipped below. This is the big win: the active set is a full
-	// disc around the player, but the camera only ever sees a forward wedge of it.
+	// Build the view frustum once per frame from the same transform the vertex shader
+	// uses (projM * uView * uModel), then skip chunks whose box falls outside it.
+	// The active set is a full disc around the player; the camera sees only a wedge.
 	const glm::mat4 clip = _camera.GetProjectionMatrix() * _camera.GetViewMatrix() * _model;
 	const Frustum frustum = ExtractFrustum(clip);
 
-	// One command list of scratch per pool. (Re)size to the pool count once; after
-	// that we only clear() each frame, which keeps the capacity so no reallocation.
+	// One scratch command list per pool. Resize to the pool count once, then just
+	// clear() each frame so the capacity sticks and we don't reallocate.
 	const int poolCount = chunkManager.PoolCount();
 	if ((int)_drawCommands.size() != poolCount) {
 		_drawCommands.assign(poolCount, {});
@@ -264,48 +259,70 @@ void Renderer::DrawChunks(ChunkMeshManager& chunkManager) {
 		_drawCommands[p].clear();
 	}
 
+	// Same per-pool scratch for the transparent water pools.
+	const int waterPoolCount = chunkManager.WaterPoolCount();
+	if ((int)_waterDrawCommands.size() != waterPoolCount) {
+		_waterDrawCommands.assign(waterPoolCount, {});
+	}
+	for (int p = 0; p < waterPoolCount; ++p) {
+		_waterDrawCommands[p].clear();
+	}
+
 	// Bucket every visible chunk into its pool's command list. Each command's
-	// baseInstance carries the chunk's slot; the vertex shader uses that
-	// (gl_BaseInstanceARB) to look up the chunk's offset, which the pool stores
-	// per-slot. So there is no per-frame offset list to keep in sync any more.
+	// baseInstance is the chunk's slot; the shader reads chunkOffsets[gl_BaseInstanceARB]
+	// from the pool's per-slot table, so there's no per-frame offset list to sync.
 	for (const glm::vec2& coord : _chunkRenderer.GetActiveChunkSet()) {
 		auto it = chunkMap.find(coord);
 		if (it == chunkMap.end()) continue;
 
 		const ChunkResident& res = it->second;
-		if (res.poolId < 0 || res.quadCount <= 0) continue; // empty chunk or no slot
+		// A chunk may carry terrain, water, or both. Skip only when it has neither.
+		const bool hasTerrain = res.poolId >= 0 && res.quadCount > 0;
+		const bool hasWater   = res.waterPoolId >= 0 && res.waterQuadCount > 0;
+		if (!hasTerrain && !hasWater) continue;
 
-		// Conservative chunk AABB in pre-model (worldPos) space: x and z span one
-		// chunk out from its world offset, y spans the full build height. If it is
-		// fully off-screen, skip it - no command, no offset, no GPU work.
+		// Chunk AABB in pre-model (worldPos) space: x/z span one chunk from its offset,
+		// y spans the full build height. Off-screen chunks are skipped. One test covers
+		// both passes since terrain and water share the same box.
 		const glm::vec3 boxMin(res.offset.x, 0.0f, res.offset.y);
 		const glm::vec3 boxMax(res.offset.x + (float)_width, (float)_height, res.offset.y + (float)_depth);
 		if (!frustum.IsBoxVisible(boxMin, boxMax)) continue;
 
-		const ChunkPool& pool = chunkManager.GetPool(res.poolId);
-		DrawElementsIndirectCommand cmd;
-		cmd.count         = static_cast<GLuint>(res.quadCount) * 6;
-		cmd.instanceCount = 1;
-		cmd.firstIndex    = pool.FirstIndex(res.slot);  // index units; chunk-local 0-based indices
-		cmd.baseVertex    = pool.BaseVertex(res.slot);  // shift them into this slot's vertex range
-		cmd.baseInstance  = static_cast<GLuint>(res.slot); // shader reads chunkOffsets[gl_BaseInstanceARB]
-		_drawCommands[res.poolId].push_back(cmd);
+		if (hasTerrain) {
+			const ChunkPool& pool = chunkManager.GetPool(res.poolId);
+			DrawElementsIndirectCommand cmd;
+			cmd.count         = static_cast<GLuint>(res.quadCount) * 6;
+			cmd.instanceCount = 1;
+			cmd.firstIndex    = pool.FirstIndex(res.slot);  // index units; chunk-local 0-based indices
+			cmd.baseVertex    = pool.BaseVertex(res.slot);  // shift them into this slot's vertex range
+			cmd.baseInstance  = static_cast<GLuint>(res.slot); // shader reads chunkOffsets[gl_BaseInstanceARB]
+			_drawCommands[res.poolId].push_back(cmd);
+		}
+
+		if (hasWater) {
+			const ChunkPool& wpool = chunkManager.GetWaterPool(res.waterPoolId);
+			DrawElementsIndirectCommand cmd;
+			cmd.count         = static_cast<GLuint>(res.waterQuadCount) * 6;
+			cmd.instanceCount = 1;
+			cmd.firstIndex    = wpool.FirstIndex(res.waterSlot);
+			cmd.baseVertex    = wpool.BaseVertex(res.waterSlot);
+			cmd.baseInstance  = static_cast<GLuint>(res.waterSlot);
+			_waterDrawCommands[res.waterPoolId].push_back(cmd);
+		}
 	}
 
-	// One glMultiDrawElementsIndirect per non-empty pool: upload this frame's
-	// command list, bind the pool's static per-slot offset table at SSBO binding
-	// 0, then fire the whole pool in a single GL call.
+	// One glMultiDrawElementsIndirect per non-empty pool: upload this frame's commands,
+	// bind the pool's per-slot offset table at SSBO 0, then draw the pool in one call.
 	for (int p = 0; p < poolCount; ++p) {
 		const std::vector<DrawElementsIndirectCommand>& cmds = _drawCommands[p];
 		if (cmds.empty()) continue;
 
 		ChunkPool& pool = chunkManager.GetPool(p);
 
-		// Orphan the command buffer first (glBufferData with nullptr) so this
-		// upload gets fresh storage and can't stall waiting on last frame's draw
-		// still reading the old commands. We keep its full per-slot capacity and
-		// fill only the visible prefix. Offsets are NOT uploaded here - they live
-		// in the pool's per-slot SSBO, written once when each chunk migrated in.
+		// Orphan the command buffer (glBufferData with nullptr) so this upload gets
+		// fresh storage instead of stalling on last frame's draw. Allocate full
+		// per-slot capacity but fill only the visible prefix. Offsets aren't uploaded
+		// here - they live in the pool's per-slot SSBO, written once at migrate time.
 		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, pool.IndirectBuffer());
 		glBufferData(GL_DRAW_INDIRECT_BUFFER,
 			static_cast<GLsizeiptr>(pool.SlotCount()) * sizeof(DrawElementsIndirectCommand),
@@ -324,6 +341,47 @@ void Renderer::DrawChunks(ChunkMeshManager& chunkManager) {
 			static_cast<GLsizei>(cmds.size()),
 			0);                                       // tightly packed (stride 0 = sizeof(command))
 	}
+
+	// ---- Transparent water pass ----
+	// Drawn after opaque terrain (depth buffer already holds the nearest solid).
+	// Blend over the terrain; depth-write off so water doesn't occlude other water,
+	// depth-test on so terrain still occludes water; no face culling (seen both sides).
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
+	glDisable(GL_CULL_FACE);
+
+	for (int p = 0; p < waterPoolCount; ++p) {
+		const std::vector<DrawElementsIndirectCommand>& cmds = _waterDrawCommands[p];
+		if (cmds.empty()) continue;
+
+		ChunkPool& pool = chunkManager.GetWaterPool(p);
+
+		// Same orphan-then-fill upload + per-slot offset binding as the terrain path.
+		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, pool.IndirectBuffer());
+		glBufferData(GL_DRAW_INDIRECT_BUFFER,
+			static_cast<GLsizeiptr>(pool.SlotCount()) * sizeof(DrawElementsIndirectCommand),
+			nullptr, GL_DYNAMIC_DRAW);
+		glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0,
+			static_cast<GLsizeiptr>(cmds.size()) * sizeof(DrawElementsIndirectCommand),
+			cmds.data());
+
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, pool.OffsetSSBO());
+
+		glBindVertexArray(pool.Vao());
+		glMultiDrawElementsIndirect(
+			GL_TRIANGLES,
+			GL_UNSIGNED_SHORT,
+			nullptr,
+			static_cast<GLsizei>(cmds.size()),
+			0);
+	}
+
+	// Restore the default opaque render state for the next frame.
+	glDisable(GL_BLEND);
+	glDepthMask(GL_TRUE);
+	glEnable(GL_CULL_FACE);
+
 	glBindVertexArray(0);
 }
 

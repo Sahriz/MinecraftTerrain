@@ -14,12 +14,17 @@ using ChunkCoord = glm::vec2;
 #include "Helpers/BlockDataQueue.h"
 #include "Renderer/ChunkPool.h"
 
-// Once a chunk's geometry has been copied into a pool slot, this lightweight
-// record is all we keep per chunk on the CPU side (it owns no GPU handles).
+// All we keep per chunk on the CPU once its geometry is in a pool slot.
+// Owns no GPU handles.
 struct ChunkResident {
-	int poolId = -1;                     // which pool, or -1 if empty chunk / no slot available
+	int poolId = -1;                     // which terrain pool, or -1 if empty chunk / no slot available
 	int slot = -1;                       // slot index inside that pool
-	int quadCount = 0;                   // quads stored in the slot
+	int quadCount = 0;                   // terrain quads stored in the slot
+	// Parallel water residency. Stays -1 / 0 when the chunk has no water, so dry
+	// chunks don't burn a water slot.
+	int waterPoolId = -1;                // which water pool, or -1 if no water / no slot
+	int waterSlot = -1;                  // slot index inside that water pool
+	int waterQuadCount = 0;              // water quads stored in the slot
 	glm::vec2 offset = glm::vec2(0.0f);  // world offset, fed to the "offset" draw uniform
 };
 
@@ -39,8 +44,8 @@ public:
 	void GenerateChunks(const std::vector<glm::vec2>& activeChunks);
 	void PruneChunks(const std::vector<glm::vec2>& activeChunks);
 
-	// Where finished GPU->CPU block readbacks are pushed (owned by App, drained by
-	// the world thread). Null disables readback entirely - we skip the GPU copy.
+	// Where finished GPU->CPU block readbacks go (App owns it, world thread drains it).
+	// Null disables readback entirely.
 	void SetBlockDataSink(BlockDataQueue* sink) { _blockSink = sink; }
 
 	// Advance any in-flight block readbacks: poll their fences without blocking and
@@ -49,7 +54,8 @@ public:
 
 	void DestroyChunks() {
 		_chunkMap.clear();
-		_pools.clear(); // free pool arenas/VAOs while the GL context is still current
+		_pools.clear();      // free pool arenas/VAOs while the GL context is still current
+		_waterPools.clear(); // same for the transparent water pools
 
 		// Free the owned block buffers and outstanding fences while the context is current.
 		for (PendingReadback& pr : _pendingReadbacks) {
@@ -90,11 +96,17 @@ public:
 
 	int PoolCount() const { return (int)_pools.size(); }
 
+	// Water (transparent) pools, drawn in a separate blended pass after the opaque terrain.
+	ChunkPool& GetWaterPool(int poolId) {
+		return _waterPools[poolId];
+	}
+
+	int WaterPoolCount() const { return (int)_waterPools.size(); }
+
 private:
-	// A chunk's block buffer awaiting CPU readback. Rather than copy blockID_SSBO
-	// into a scratch buffer, we take ownership of the buffer itself and keep it alive
-	// here. We poll `fence` each frame and only read `blockSSBO` once it signals, so
-	// the render thread never stalls waiting on the GPU.
+	// A chunk's block buffer awaiting CPU readback. We take ownership of blockID_SSBO
+	// (instead of copying it) and poll `fence` each frame, reading `blockSSBO` only
+	// once it signals so the render thread never stalls on the GPU.
 	struct PendingReadback {
 		glm::vec2 coord;
 		GLuint    blockSSBO = 0;
@@ -102,8 +114,10 @@ private:
 	};
 
 	std::unordered_map<ChunkCoord, ChunkResident> _chunkMap;
-	std::vector<ChunkPool> _pools;   // segregated fixed-bucket geometry pools
-	bool _warnedNoSlot = false;      // throttles the "no slot available" log to once
+	std::vector<ChunkPool> _pools;        // segregated fixed-bucket terrain geometry pools
+	std::vector<ChunkPool> _waterPools;   // parallel, smaller pools for transparent water geometry
+	bool _warnedNoSlot = false;           // throttles the terrain "no slot available" log to once
+	bool _warnedNoWaterSlot = false;      // throttles the water "no slot available" log to once
 
 	BlockDataQueue* _blockSink = nullptr;        // where finished readbacks go (App owns it)
 	std::vector<PendingReadback> _pendingReadbacks; // block buffers in flight, awaiting their fence
@@ -123,10 +137,9 @@ private:
 	ChunkResident MigrateToPool(Core::VoxelCubeMesh& mesh);
 
 	// Queue a non-stalling GPU->CPU readback of this chunk's block IDs: take ownership
-	// of blockID_SSBO (so the mesh's destructor won't free it) and drop a fence.
-	// PollReadbacks() reads the buffer and frees it on a later frame, once the fence
-	// signals. Done for every generated chunk (even empty geometry), since physics
-	// still needs the block data.
+	// of blockID_SSBO (so the mesh destructor won't free it) and drop a fence.
+	// PollReadbacks() reads and frees it on a later frame once the fence signals.
+	// Done for every chunk, even empty ones, since physics needs the block data.
 	void EnqueueBlockReadback(glm::vec2 coord, Core::VoxelCubeMesh& mesh);
 
 };

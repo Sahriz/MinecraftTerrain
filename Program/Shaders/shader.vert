@@ -9,12 +9,10 @@ uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat3 normalMatrix;
 
-// One world-space offset per POOL SLOT (not per draw). Each multidraw command
-// sets baseInstance = its chunk's slot, and we index this table with
-// gl_BaseInstanceARB below. Because a chunk's slot is stable while it stays
-// resident, this table is written once when the chunk loads and never per
-// frame - even though the per-frame command list changes as chunks frustum-cull
-// in and out of view.
+// One world-space offset per pool slot (not per draw). Each multidraw command sets
+// baseInstance to its chunk's slot; we index this with gl_BaseInstanceARB below.
+// A slot is stable while the chunk stays resident, so this is written once at load,
+// not per frame.
 layout(std430, binding = 0) readonly buffer ChunkOffsets {
     vec2 chunkOffsets[];
 };

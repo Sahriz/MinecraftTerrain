@@ -9,53 +9,72 @@ layout(std430, binding = 0) buffer DensityBuffer{
     uint16_t blockIDs[];
 };
 
-// The counter that tracks how many items we've added
+// Land (opaque terrain) surface list + its counter.
 layout(std430, binding = 1) buffer CounterBuffer {
     uint activeVoxelCount;
 };
-
-// The actual list of voxel IDs
 layout(std430, binding = 2) buffer ActiveVoxelList {
     uint activeVoxels[];
+};
+
+// Water surface list + its counter. Filled in the same sweep as land, so each
+// surface voxel goes to exactly one list and we never walk the volume twice.
+layout(std430, binding = 3) buffer WaterCounterBuffer {
+    uint waterVoxelCount;
+};
+layout(std430, binding = 4) buffer WaterVoxelList {
+    uint waterVoxels[];
 };
 
 uniform int width;
 uniform int height;
 uniform int depth;
 
-
-
-bool IsAir(int x, int y, int z)
-{
-    int index = x + y * (width) + z * (width) * (height);
-    return uint(blockIDs[index]) < 1u;
+// Block IDs: 0 = air, 5 = water, everything else (1..4) = solid land.
+uint BlockAt(int x, int y, int z) {
+    return uint(blockIDs[x + y * width + z * width * height]);
 }
 
 void main(){
     ivec3 position = ivec3(gl_GlobalInvocationID.xyz);
-    
+
     if (position.x >= width-2 || position.y >= height-2 || position.z >= depth-2)
         return;
     ivec3 pos = position + ivec3(1,1,1);
-    int centerIdx = pos.x + pos.y * width + pos.z * width * height;
-    uint centerID = uint(blockIDs[centerIdx]);
 
-    // Only process solid blocks
-    if (centerID > 0) {
-        // Check 6 neighbors (Face Culling Logic)
-        bool isSurface = IsAir(pos.x + 1, pos.y, pos.z) ||
-                         IsAir(pos.x - 1, pos.y, pos.z) ||
-                         IsAir(pos.x, pos.y + 1, pos.z) ||
-                         IsAir(pos.x, pos.y - 1, pos.z) ||
-                         IsAir(pos.x, pos.y, pos.z + 1) ||
-                         IsAir(pos.x, pos.y, pos.z - 1);
+    uint centerID = BlockAt(pos.x, pos.y, pos.z);
+    if (centerID == 0u) return; // air: nothing to draw
 
-        if (isSurface) {
-            uint listIdx = atomicAdd(activeVoxelCount, 1);
-            
-            // Using your same packing logic: 10 bits per axis
-            uint packedID = uint(pos.x) | (uint(pos.y) << 10) | (uint(pos.z) << 20);
-            activeVoxels[listIdx] = packedID;
+    // Read the 6 neighbours once; derive both "touches air" and "touches non-land"
+    // from the same fetches.
+    uint nb[6];
+    nb[0] = BlockAt(pos.x + 1, pos.y, pos.z);
+    nb[1] = BlockAt(pos.x - 1, pos.y, pos.z);
+    nb[2] = BlockAt(pos.x, pos.y + 1, pos.z);
+    nb[3] = BlockAt(pos.x, pos.y - 1, pos.z);
+    nb[4] = BlockAt(pos.x, pos.y, pos.z + 1);
+    nb[5] = BlockAt(pos.x, pos.y, pos.z - 1);
+
+    // 10 bits per axis.
+    uint packedID = uint(pos.x) | (uint(pos.y) << 10) | (uint(pos.z) << 20);
+
+    if (centerID == 5u) {
+        // Water surface: a face is visible only where water meets AIR. Water against
+        // land is hidden behind the land face; water against water is interior.
+        bool touchesAir = false;
+        for (int i = 0; i < 6; i++) { if (nb[i] == 0u) touchesAir = true; }
+        if (touchesAir) {
+            uint idx = atomicAdd(waterVoxelCount, 1);
+            waterVoxels[idx] = packedID;
+        }
+    } else {
+        // Land surface: a face is visible where land meets non-land (air or water).
+        // Counting water as air-like here is what renders sea/lake beds under the water.
+        bool touchesNonLand = false;
+        for (int i = 0; i < 6; i++) { if (nb[i] == 0u || nb[i] == 5u) touchesNonLand = true; }
+        if (touchesNonLand) {
+            uint idx = atomicAdd(activeVoxelCount, 1);
+            activeVoxels[idx] = packedID;
         }
     }
 }

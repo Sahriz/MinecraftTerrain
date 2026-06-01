@@ -168,6 +168,11 @@ namespace Core
 			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, mesh.indirectBuffer);
 			glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(drawCmd), drawCmd, GL_DYNAMIC_DRAW);
 
+			// Parallel indirect command for the water mesh (binding 3 in GeometryInit's water pass).
+			glGenBuffers(1, &mesh.waterIndirectBuffer);
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, mesh.waterIndirectBuffer);
+			glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof(drawCmd), drawCmd, GL_DYNAMIC_DRAW);
+
 			glGenVertexArrays(1, &mesh.vao);
 			glBindVertexArray(mesh.vao);
 
@@ -219,6 +224,28 @@ namespace Core
 
 				glBindVertexArray(0);
 				mesh.gpuLoaded = true;
+			}
+		}
+
+		// Allocates the parallel water geometry buffers, sized to the water quad count.
+		// Like InitializeVoxelCubeMeshSize but writes the water* handles and skips the
+		// VAO (the pool copies these buffers out; they're never bound as a VAO here).
+		void InitializeWaterMeshSize(VoxelCubeMesh& mesh, int size) {
+			if (size > -1) {
+				mesh.maxWaterQuads = size;
+
+				glGenBuffers(1, &mesh.waterPackedData_SSBO);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.waterPackedData_SSBO);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * size * sizeof(uint32_t), NULL, GL_DYNAMIC_COPY);
+
+				glGenBuffers(1, &mesh.waterIbo);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.waterIbo);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, 6 * size * sizeof(uint16_t), NULL, GL_DYNAMIC_COPY);
+
+				int initialVertex = 0;
+				glGenBuffers(1, &mesh.waterVertexCounter);
+				glBindBuffer(GL_SHADER_STORAGE_BUFFER, mesh.waterVertexCounter);
+				glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(int), &initialVertex, GL_DYNAMIC_COPY);
 			}
 		}
 
@@ -296,10 +323,12 @@ namespace Core
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
-		void PerformVoxelCubesSurfaceCulling(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth, float isoLevel) {
-			// 1. Reset the AppendBuffer counter to 0 so we start fresh for this chunk
+		void PerformVoxelCubesSurfaceCulling(VoxelCubeMesh& mesh, AppendBuffer& ab, AppendBuffer& abWater, int width, int height, int depth, float isoLevel) {
+			// 1. Reset BOTH list counters to 0 (land + water) so we start fresh for this chunk
 			uint32_t zero = 0;
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.getCounterSSBO());
+			glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &zero);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, abWater.getCounterSSBO());
 			glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &zero);
 
 			// 2. Memory Barrier: Ensure the Noise Map is finished before we read it
@@ -308,12 +337,14 @@ namespace Core
 			// 3. Bind the Culling Shader and its buffers
 			glUseProgram(_voxelCubesSurfaceCullingComputeShader);
 
-			// Binding 0: The Noise Density (Input)
+			// Binding 0: The Block IDs (Input)
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
-			// Binding 1: The AppendBuffer Counter (Output)
+			// Binding 1/2: Land surface counter + list (Output)
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ab.getCounterSSBO());
-			// Binding 2: The AppendBuffer Data List (Output)
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ab.getDataSSBO());
+			// Binding 3/4: Water surface counter + list (Output)
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, abWater.getCounterSSBO());
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, abWater.getDataSSBO());
 
 			// 4. Set Uniforms
 			glUniform1i(glGetUniformLocation(_voxelCubesSurfaceCullingComputeShader, "width"), width);
@@ -332,7 +363,7 @@ namespace Core
 				GL_SHADER_STORAGE_BARRIER_BIT);
 		}
 
-		int VoxelCubesQuadCount(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, bool CleanUp) {
+		int VoxelCubesQuadCount(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, bool CleanUp, int meshMode) {
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
 
 			GLuint ssboCounter;
@@ -350,6 +381,7 @@ namespace Core
 			glUniform1i(_countWidthLoc, width);
 			glUniform1i(_countHeightLoc, heigth);
 			glUniform1i(_countDepthLoc, depth);
+			glUniform1i(glGetUniformLocation(_voxelCubesTriangleCounterComputeShader, "meshMode"), meshMode);
 
 			uint32_t activeCount = 0;
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, ab.getCounterSSBO());
@@ -379,15 +411,23 @@ namespace Core
 			return faceCount;
 		}
 
-		void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp) {
+		void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp, int meshMode) {
+
+			// Route geometry to the terrain or water mesh. The block-ID input and the active
+			// list (ab, already the matching land/water list) bind the same way; only the
+			// four output buffers differ.
+			GLuint iboTarget           = (meshMode == 1) ? mesh.waterIbo             : mesh.ibo;
+			GLuint indirectTarget      = (meshMode == 1) ? mesh.waterIndirectBuffer  : mesh.indirectBuffer;
+			GLuint vertexCounterTarget = (meshMode == 1) ? mesh.waterVertexCounter   : mesh.ssboVertexCounter;
+			GLuint packedTarget        = (meshMode == 1) ? mesh.waterPackedData_SSBO : mesh.packedData_SSBO;
 
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, mesh.blockID_SSBO);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mesh.ibo);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, mesh.indirectBuffer);
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, mesh.ssboVertexCounter);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, iboTarget);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, indirectTarget);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, vertexCounterTarget);
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ab.getCounterSSBO());
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, ab.getDataSSBO());
-			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, mesh.packedData_SSBO);
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, packedTarget);
 
 			glUseProgram(_voxelCubesGeometryInitComputeShader);
 
@@ -397,6 +437,7 @@ namespace Core
 			glUniform3fv(_geomOffsetLoc, 1, &offset[0]);
 			glUniform1f(_geomColumnSizeLoc, 3);
 			glUniform1f(_geomRowSizeLoc, 16);
+			glUniform1i(glGetUniformLocation(_voxelCubesGeometryInitComputeShader, "meshMode"), meshMode);
 
 			glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, ab.getDispatchIndirect());
 			glDispatchComputeIndirect(0);
@@ -434,19 +475,30 @@ namespace Core
 
 			InterpolateNoise(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
 
-			AppendBuffer ab(paddedWidth, paddedHeight, paddedDepth);
+			AppendBuffer ab(paddedWidth, paddedHeight, paddedDepth);       // land surface voxels
+			AppendBuffer abWater(paddedWidth, paddedHeight, paddedDepth);  // water surface voxels
 
-			PerformVoxelCubesSurfaceCulling(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, 0.0f);
+			// One sweep over the volume routes each surface voxel into the land or water list.
+			PerformVoxelCubesSurfaceCulling(*cubeMeshData, ab, abWater, paddedWidth, paddedHeight, paddedDepth, 0.0f);
 
 			SampleDistanceToAir(*cubeMeshData, paddedWidth, paddedHeight, paddedDepth);
 
 			TerrainPaint(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth);
 
-			int quadCount = VoxelCubesQuadCount(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, CleanUp);
+			// --- Terrain mesh (meshMode 0: emit a face vs air OR water) ---
+			int quadCount = VoxelCubesQuadCount(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, CleanUp, 0);
 
 			InitializeVoxelCubeMeshSize(*cubeMeshData, quadCount);
 
-			VoxelCubesGeometryInit(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, quadCount, CleanUp);
+			VoxelCubesGeometryInit(*cubeMeshData, ab, paddedWidth, paddedHeight, paddedDepth, offset3D, quadCount, CleanUp, 0);
+
+			// --- Water mesh (meshMode 1: emit a face vs air only) ---
+			int waterQuadCount = VoxelCubesQuadCount(*cubeMeshData, abWater, paddedWidth, paddedHeight, paddedDepth, offset3D, CleanUp, 1);
+
+			InitializeWaterMeshSize(*cubeMeshData, waterQuadCount);
+
+			VoxelCubesGeometryInit(*cubeMeshData, abWater, paddedWidth, paddedHeight, paddedDepth, offset3D, waterQuadCount, CleanUp, 1);
+
 			glDeleteBuffers(1, &cubeMeshData->distanceToAirSSBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingVBO);
 			glDeleteBuffers(1, &cubeMeshData->stagingIBO);
@@ -454,6 +506,11 @@ namespace Core
 			glDeleteBuffers(1, &cubeMeshData->stagingIndirect);
 			glDeleteBuffers(1, &cubeMeshData->densitySSBO);
 			glDeleteBuffers(1, &cubeMeshData->lowResDensity_SSBO);
+			// The water vertex cursor is scratch and freed now; the packed/index/indirect
+			// buffers stay alive for the pool to copy out of (freed later by Release()).
+			// Zero the handle so the destructor doesn't double-free a recycled buffer name.
+			glDeleteBuffers(1, &cubeMeshData->waterVertexCounter);
+			cubeMeshData->waterVertexCounter = 0;
 			// Keep blockID_SSBO alive: the caller reads it back to the CPU for physics, then the destructor frees it.
 
 			return cubeMeshData;

@@ -78,6 +78,10 @@ namespace Core {
 		// GPU IDs
 		GLuint vao = 0, ibo = 0;
 		GLuint packedData_SSBO = 0;
+		// Water geometry: a parallel, smaller mesh (faces only where water meets air).
+		// waterPackedData_SSBO/waterIbo outlive generation so the manager can copy them
+		// into the water pools; the counter/indirect pair are scratch, freed after build.
+		GLuint waterPackedData_SSBO = 0, waterIbo = 0, waterVertexCounter = 0, waterIndirectBuffer = 0;
 		// lowResDensity_SSBO holds the stride-2 float density values written by the noise pass.
 		// blockID_SSBO holds the full-res uint16_t block IDs written by the interpolation pass.
 		GLuint lowResDensity_SSBO = 0, blockID_SSBO = 0, distanceToAirSSBO = 0, indirectBuffer = 0, densitySSBO = 0;
@@ -90,6 +94,7 @@ namespace Core {
 		// Logic data
 		int indexCount = 0;
 		int maxQuards = 0;
+		int maxWaterQuads = 0;
 		bool gpuLoaded = false;
 
 		VoxelCubeMesh(const VoxelCubeMesh&) = delete;
@@ -106,6 +111,11 @@ namespace Core {
 				vao = other.vao;
 				ibo = other.ibo;
 				packedData_SSBO = other.packedData_SSBO;
+				waterPackedData_SSBO = other.waterPackedData_SSBO;
+				waterIbo = other.waterIbo;
+				waterVertexCounter = other.waterVertexCounter;
+				waterIndirectBuffer = other.waterIndirectBuffer;
+				maxWaterQuads = other.maxWaterQuads;
 				lowResDensity_SSBO = other.lowResDensity_SSBO;
 				blockID_SSBO = other.blockID_SSBO;
 				indirectBuffer = other.indirectBuffer;
@@ -125,6 +135,10 @@ namespace Core {
 				other.vao = 0;
 				other.ibo = 0;
 				other.packedData_SSBO = 0;
+				other.waterPackedData_SSBO = 0;
+				other.waterIbo = 0;
+				other.waterVertexCounter = 0;
+				other.waterIndirectBuffer = 0;
 				other.lowResDensity_SSBO = 0;
 				other.blockID_SSBO = 0;
 				other.indirectBuffer = 0;
@@ -137,6 +151,7 @@ namespace Core {
 				other.syncObj = nullptr;
 				other.indexCount = 0;
 				other.maxQuards = 0;
+				other.maxWaterQuads = 0;
 				other.gpuLoaded = false;
 				other.offset = glm::vec2(0);
 			}
@@ -151,6 +166,10 @@ namespace Core {
 			if (vao) glDeleteVertexArrays(1, &vao);
 			if (ibo) glDeleteBuffers(1, &ibo);
 			if (packedData_SSBO) glDeleteBuffers(1, &packedData_SSBO);
+			if (waterPackedData_SSBO) glDeleteBuffers(1, &waterPackedData_SSBO);
+			if (waterIbo) glDeleteBuffers(1, &waterIbo);
+			if (waterVertexCounter) glDeleteBuffers(1, &waterVertexCounter);
+			if (waterIndirectBuffer) glDeleteBuffers(1, &waterIndirectBuffer);
 			if (lowResDensity_SSBO) glDeleteBuffers(1, &lowResDensity_SSBO);
 			if (blockID_SSBO) glDeleteBuffers(1, &blockID_SSBO);
 			if (indirectBuffer) glDeleteBuffers(1, &indirectBuffer);
@@ -163,6 +182,8 @@ namespace Core {
 			if (syncObj) glDeleteSync(syncObj);
 
 			vao = ibo = packedData_SSBO = lowResDensity_SSBO = blockID_SSBO = indirectBuffer = distanceToAirSSBO = densitySSBO = stagingVBO = stagingIBO = ssboVertexCounter = stagingIndirect = 0;
+			waterPackedData_SSBO = waterIbo = waterVertexCounter = waterIndirectBuffer = 0;
+			maxWaterQuads = 0;
 			offset = glm::vec2(0);
 			syncObj = nullptr;
 			gpuLoaded = false;
@@ -217,6 +238,9 @@ namespace Core {
 
 	void InitializeVoxelCubeMesh(VoxelCubeMesh& mesh, int width, int height, int depth);
 	void InitializeVoxelCubeMeshSize(VoxelCubeMesh& mesh, int size);
+	// Allocates the parallel water geometry buffers (packed verts + indices + scratch
+	// counters), sized to the water quad count. No VAO: the pooled path supplies its own.
+	void InitializeWaterMeshSize(VoxelCubeMesh& mesh, int size);
 	// CreateNoise dispatches the low-res noise shader over (width, height, depth) low-res samples.
 	// offset must already be pre-shifted by -1 so sample index 0 aligns to padded position -1.
 	void CreateNoise(VoxelCubeMesh& mesh, const int width, const int height, const int depth, const glm::vec3 offset, bool CleanUp, const float frequency, const bool useDropoff);
@@ -226,9 +250,11 @@ namespace Core {
 	void SampleDistanceToAir(VoxelCubeMesh& mesh, int width, int height, int depth);
 	void TerrainPaint(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth);
 
-	void PerformVoxelCubesSurfaceCulling(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int height, int depth, float isoLevel);
-	int VoxelCubesQuadCount(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, bool CleanUp);
-	void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp);
+	// One culling sweep fills two surface lists: land (ab) and water (abWater).
+	void PerformVoxelCubesSurfaceCulling(VoxelCubeMesh& mesh, AppendBuffer& ab, AppendBuffer& abWater, int width, int height, int depth, float isoLevel);
+	// meshMode 0 = terrain (faces vs air OR water), 1 = water (faces vs air only).
+	int VoxelCubesQuadCount(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, bool CleanUp, int meshMode);
+	void VoxelCubesGeometryInit(VoxelCubeMesh& mesh, AppendBuffer& ab, int width, int heigth, int depth, glm::vec3 offset, int quadCount, bool CleanUp, int meshMode);
 	std::unique_ptr<VoxelCubeMesh> CreateVoxelCubes3DMesh(int width, int heigth, int depth, glm::vec2 offset, bool CleanUp, const float amplitude = 1.0f, const float frequency = 1.0f, const float persistance = 0.5f, const float lacunarity = 2.0f, const int octaves = 5, const bool useDropoff = true);
 
 

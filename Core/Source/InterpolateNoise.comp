@@ -25,8 +25,8 @@ void main() {
 
     if (xPos >= uint(width) || yPos >= uint(height) || zPos >= uint(depth)) return;
 
-    // Low-res grid has one extra sample per dimension beyond the half-res count,
-    // placed at world-aligned positions so chunk boundary samples are exact and shared:
+    // Low-res grid has one extra sample per axis beyond the half-res count, at
+    // world-aligned positions so chunk-boundary samples are exact and shared:
     //   low-res index i  <->  padded position (2*i - 1)
     //   samples land at padded positions: -1, 1, 3, ..., (paddedDim - 1)
     int lowW = width  / 2 + 1;
@@ -74,9 +74,24 @@ void main() {
 
     uint index = xPos + yPos * uint(width) + zPos * uint(width) * uint(height);
 
+    // Bedrock floor: force the bottom layers solid regardless of density, so a deep
+    // carve or ocean trench can't open a hole to the void. ID 4 = bedrock; the painter
+    // leaves this band alone.
+    if (yPos <= 2u) {
+        blockIDs[index] = uint16_t(4);
+        return;
+    }
+
+    // Sea level: any air at or below this world height becomes water (ID 5). One rule
+    // fills oceans, lakes and basins (and river channels, once the carve lands). yPos
+    // maps 1:1 to world Y here. Keep in sync with the sea level in 3DNoiseExpirimant.comp.
+    const uint SEA_LEVEL = 90u;
+
     if (density > 0.0) {
-        blockIDs[index] = uint16_t(1);
+        blockIDs[index] = uint16_t(1);          // solid land
+    } else if (yPos <= SEA_LEVEL) {
+        blockIDs[index] = uint16_t(5);          // water
     } else {
-        blockIDs[index] = uint16_t(0);
+        blockIDs[index] = uint16_t(0);          // air
     }
 }

@@ -50,12 +50,17 @@ uniform vec3 offset;
 
 uniform float columns;
 uniform float rows;
+uniform int meshMode; // 0 = terrain (faces vs air or water), 1 = water (faces vs air only)
 
 
 
-bool IsSolid(int x, int y, int z) {
-    int index = x + y * gridWidth + z * gridWidth * gridHeigth;
-    return uint(blockIDs[index]) > 0u;
+// Emit a face toward neighbour (x,y,z)? Terrain shows faces against air or water,
+// water only against air. Must match CountTriangles' FaceVisible exactly, or the
+// reserved buffer space won't match what we write.
+bool FaceVisible(int x, int y, int z) {
+    uint id = uint(blockIDs[x + y * gridWidth + z * gridWidth * gridHeigth]);
+    if (meshMode == 1) return id == 0u;          // water: face only against air
+    return (id == 0u) || (id == 5u);             // terrain: face against air or water
 }
 
  // Normals for each face
@@ -94,7 +99,7 @@ void main(){
     for (int f = 0; f < 6; f++) {
         ivec3 neighborPos = position + dirs[f];
     
-        if (!IsSolid(neighborPos.x, neighborPos.y, neighborPos.z)) {
+        if (FaceVisible(neighborPos.x, neighborPos.y, neighborPos.z)) {
         
             // 1. Reserve 4 vertices and 6 indices
             int vStart = atomicAdd(vertexCounter, 4);

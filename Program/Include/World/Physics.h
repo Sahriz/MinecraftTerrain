@@ -16,10 +16,10 @@ public:
     Physics(const Physics&) = delete;
     Physics& operator=(const Physics&) = delete;
 
-    // Advance the player one tick: horizontal movement from input, gravity, jump,
-    // and per-axis swept AABB collision against the voxel terrain. Vertical motion
-    // is frozen while the column under the player has not streamed in yet, so the
-    // player never falls through terrain that simply has not arrived from the GPU.
+    // Advance the player one tick: horizontal movement from input, gravity, jump, and
+    // per-axis swept AABB collision against the voxel terrain. Vertical motion freezes
+    // while the column under the player hasn't streamed in, so the player can't fall
+    // through terrain that just hasn't arrived from the GPU yet.
     void Step(Player& player, const ChunkBlockManager& blocks,
               const PlayerInputState& input, float deltaTime);
 
