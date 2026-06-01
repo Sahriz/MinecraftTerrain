@@ -72,12 +72,24 @@ void main()
     vec2 offset = chunkOffsets[gl_BaseInstanceARB];
     vec3 worldPos = position + vec3(offset.x, 0.0, offset.y);
     vec3 normal = getNormal();
+    
+    uint base = unpackTexID();
+    
+    // Offset water surface (Block ID 5 -> Texture ID 12)
+    if (base == 12u) {
+        float rawV = float((aPackedData >> 23) & 0x1u);
+        if (normal.y > 0.1) {
+            worldPos.y -= 0.1;
+        } else if (abs(normal.y) < 0.1 && rawV < 0.5) {
+            worldPos.y -= 0.1;
+        }
+    }
+
     FragPos = vec3(uModel*vec4(worldPos, 1.0f));
     Normal = normalMatrix*normal;
     gl_Position =  projM * uView * vec4(FragPos, 1.0);
     TexCoord = unpackUVs();
-    textureID = unpackTexID();
-    uint base = unpackTexID();
+    textureID = base;
     if (normal.y > 0.1)  textureID = base;      // Top
     if (abs(normal.y) < 0.1) textureID = base + 1; // Side
     if (normal.y < -0.1) textureID = base + 2; // Bottom
